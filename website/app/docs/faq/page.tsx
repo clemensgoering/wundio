@@ -29,6 +29,10 @@ const FAQS = [
     a: "Aktuell ist Spotify via librespot der Standard. Das Modulsystem ist offen für weitere Audiodienste (z.B. lokale MP3-Bibliothek, Podcast-Dienste).",
   },
   {
+    q: "Wie deinstalliere ich Wundio vollständig?",
+    a: "sudo bash /opt/wundio/scripts/uninstall.sh – oder von überall: curl -fsSL https://wundio.dev/uninstall.sh | sudo bash. Das Skript stoppt alle Dienste, gibt Port 8000 frei, entfernt alle Dateien und den System-User. Ein abschließender Neustart wird empfohlen.",
+  },
+  {
     q: "Wie aktualisiere ich Wundio?",
     a: "sudo bash /opt/wundio/scripts/update.sh – das Skript hält alle Services am Laufen und startet danach neu.",
   },
