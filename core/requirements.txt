@@ -1,0 +1,25 @@
+# Wundio – core/requirements.txt
+# Pin major versions; tested on Pi OS Bookworm (Python 3.11)
+
+# Web Framework
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+pydantic-settings==2.*
+
+# Database
+sqlmodel==0.0.21
+aiosqlite==0.20.*
+
+# Hardware (conditionally installed by install.sh)
+# RPi.GPIO and SPI are only installed on actual Pi hardware
+# Uncomment when on Pi:
+# RPi.GPIO==0.7.*
+# spidev==3.*
+# mfrc522==0.0.7
+
+# OLED Display
+# luma.oled==3.*
+# Pillow==10.*
+
+# Utilities
+python-dotenv==1.*
