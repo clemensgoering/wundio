@@ -26,7 +26,7 @@ export const metadata: Metadata = {
   openGraph: {
     title:       "Wundio",
     description: "Open-source interactive box for kids",
-    url:         "https://wundio.vercel.app",
+    url:         "https://wundio.dev",
     siteName:    "Wundio",
     type:        "website",
   },

@@ -18,13 +18,13 @@ const STEPS = [
   {
     num: "03",
     title: "Wundio installieren",
-    code: "cd; curl -fsSL https://wundio.vercel.app/install.sh | sudo bash",
+    code: "cd; curl -fsSL https://wundio.dev/install.sh | sudo bash",
     content: "Das Skript erkennt dein Pi-Modell automatisch und richtet alles ein.",
   },
   {
     num: "04",
     title: "Mit Wundio-Setup verbinden",
-    content: "Nach dem Reboot erscheint das WLAN „Wundio-Setup". Verbinden, dann http://192.168.50.1:8000 im Browser öffnen.",
+    content: "Nach dem Reboot erscheint das WLAN 'Wundio-Setup'. Verbinden, dann http://192.168.50.1:8000 im Browser öffnen.",
   },
   {
     num: "05",
