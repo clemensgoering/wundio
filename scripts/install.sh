@@ -349,15 +349,40 @@ section "9/9  Setting up WiFi hotspot"
 run_spin "hotspot setup" bash "$INSTALL_DIR/scripts/setup-hotspot.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
+
+# Detect if already on WiFi (hotspot script may have set this)
+WIFI_ALREADY_CONFIGURED=false
+if grep -q "WIFI_CONFIGURED=true" "$CONF_DIR/wundio.env" 2>/dev/null; then
+    WIFI_ALREADY_CONFIGURED=true
+fi
+# Double-check live connection
+if command -v iwgetid &>/dev/null && iwgetid wlan0 --raw 2>/dev/null | grep -q .; then
+    WIFI_ALREADY_CONFIGURED=true
+fi
+
 echo ""
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}${BOLD}  ✓  Wundio installation complete!${NC}"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  Next steps:"
-echo -e "  1. Connect to WiFi:  ${YELLOW}Wundio-Setup${NC}  (Password: ${YELLOW}wundio123${NC})"
-echo -e "  2. Open in browser:  ${YELLOW}http://192.168.50.1:8000${NC}"
-echo -e "  3. Enter your home WiFi and complete setup"
+
+if [[ "$WIFI_ALREADY_CONFIGURED" == "true" ]]; then
+    LOCAL_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "")
+    echo -e "  ${GREEN}✓ Pi is already connected to your home WiFi${NC}"
+    echo ""
+    echo -e "  After reboot, open Wundio in your browser:"
+    if [[ -n "${LOCAL_IP:-}" ]]; then
+        echo -e "    ${YELLOW}http://${LOCAL_IP}:8000${NC}"
+    fi
+    echo -e "    ${YELLOW}http://wundio.local:8000${NC}"
+else
+    echo -e "  Next steps:"
+    echo -e "  1. After reboot, connect to WiFi:  ${YELLOW}Wundio-Setup${NC}"
+    echo -e "     Password:                        ${YELLOW}wundio123${NC}"
+    echo -e "  2. Open in browser:                 ${YELLOW}http://192.168.50.1:8000${NC}"
+    echo -e "  3. Enter your home WiFi → Wundio reconnects automatically"
+fi
+
 echo ""
 echo -e "  Full log: ${LOG_FILE}"
 echo ""
