@@ -17,8 +17,9 @@ from services.hardware import get_profile
 from services.display import get_display
 from services.rfid import get_rfid_service
 from services.spotify import get_spotify_service
+from services.ai.voice import get_voice_orchestrator
 from services.buttons import build_default_service
-from api.routes import system, users, rfid_routes, settings_routes, playback, wifi
+from api.routes import system, users, rfid_routes, settings_routes, playback, wifi, voice
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +64,17 @@ async def lifespan(app: FastAPI):
         buttons.setup()
         asyncio.create_task(buttons.run())
 
+    # 5b. Voice pipeline (Phase 3 – hardware-gated)
+    voice = get_voice_orchestrator()
+    voice_enabled = get_setting("voice_enabled") == "true"
+    if voice_enabled and hw.pi_generation >= 4:
+        voice.on_action(_on_voice_action)
+        voice.setup(pi_generation=hw.pi_generation)
+        asyncio.create_task(voice.run())
+        log_event("voice", "Voice pipeline started")
+    elif hw.pi_generation < 4:
+        log_event("voice", "Voice disabled: Pi 3 not supported for real-time STT")
+
     # 6. Restore volume from last session
     saved_vol = get_setting("current_volume")
     if saved_vol and hw.feature_spotify:
@@ -83,6 +95,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    voice.stop()
     buttons.stop()
     rfid.stop()
     spotify.stop()
@@ -166,6 +179,7 @@ app.include_router(rfid_routes.router,     prefix="/api/rfid")
 app.include_router(settings_routes.router, prefix="/api/settings")
 app.include_router(playback.router,        prefix="/api/playback")
 app.include_router(wifi.router,             prefix="/api/wifi")
+app.include_router(voice.router,             prefix="/api/voice")
 
 _static = Path(cfg.static_dir)
 if _static.exists():
@@ -183,3 +197,37 @@ else:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host=cfg.host, port=cfg.port, reload=cfg.debug)
+
+
+async def _on_voice_action(intent) -> None:
+    """Dispatch voice intents to hardware services."""
+    from services.ai.intent import Intent
+    spotify = get_spotify_service()
+    state   = spotify.get_state()
+    log_event("voice", f"Action: {intent.type} {intent.params}")
+
+    if intent.type == "volume_up":
+        spotify.set_volume(min(100, state.volume + intent.params.get("amount", 10)))
+    elif intent.type == "volume_down":
+        spotify.set_volume(max(0, state.volume - intent.params.get("amount", 10)))
+    elif intent.type == "next":
+        from services.buttons import get_button_service
+        await get_button_service().simulate_press("next")
+    elif intent.type == "prev":
+        from services.buttons import get_button_service
+        await get_button_service().simulate_press("prev")
+    elif intent.type == "pause":
+        from services.buttons import get_button_service
+        await get_button_service().simulate_press("play_pause")
+    elif intent.type == "user_switch":
+        name = intent.params.get("name", "").strip()
+        from database import get_engine, User
+        from sqlmodel import Session, select
+        with Session(get_engine()) as s:
+            user = s.exec(
+                select(User).where(User.display_name.ilike(f"%{name}%"))
+            ).first()
+            if user:
+                spotify.set_volume(user.volume)
+                from services.display import get_display
+                get_display().show_user_login(user.display_name)

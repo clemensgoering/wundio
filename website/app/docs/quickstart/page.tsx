@@ -1,72 +1,59 @@
-import { Nav } from "@/components/Nav";
-import { Footer } from "@/components/Footer";
 import type { Metadata } from "next";
+import { DocHeader, Step, CodeBlock, InfoBox } from "@/components/DocComponents";
 
 export const metadata: Metadata = { title: "Quickstart" };
 
-const STEPS = [
-  {
-    num: "01",
-    title: "Hardware besorgen",
-    content: "Raspberry Pi 3/4/5, RFID-Reader RC522, I2C OLED 128×64, 5 Taster, Speaker.",
-  },
-  {
-    num: "02",
-    title: "Pi OS Bookworm installieren",
-    content: "Mit Raspberry Pi Imager Bookworm (64-bit, Lite) auf SD-Karte flashen. SSH aktivieren.",
-  },
-  {
-    num: "03",
-    title: "Wundio installieren",
-    code: "cd; curl -fsSL https://wundio.dev/install.sh | sudo bash",
-    content: "Das Skript erkennt dein Pi-Modell automatisch und richtet alles ein.",
-  },
-  {
-    num: "04",
-    title: "Mit Wundio-Setup verbinden",
-    content: "Nach dem Reboot erscheint das WLAN 'Wundio-Setup'. Verbinden, dann http://192.168.50.1:8000 im Browser öffnen.",
-  },
-  {
-    num: "05",
-    title: "Heimnetz einrichten",
-    content: "Im Web-Interface dein WLAN eintragen. Die Box verbindet sich automatisch und ist danach über die lokale IP erreichbar.",
-  },
-  {
-    num: "06",
-    title: "RFID-Tags zuweisen",
-    content: "Unter Einstellungen → RFID Figuren, Karten oder Tags zu Playlists oder Nutzerprofilen zuweisen.",
-  },
-];
-
 export default function QuickstartPage() {
   return (
-    <>
-      <Nav />
-      <main className="pt-14 max-w-3xl mx-auto px-6 py-20">
-        <p className="text-amber text-xs font-display font-semibold tracking-widest uppercase mb-3">Docs</p>
-        <h1 className="font-display font-extrabold text-4xl mb-4">Quickstart</h1>
-        <p className="text-muted mb-16">Von Null zur laufenden Wundio-Box in 20 Minuten.</p>
+    <div>
+      <DocHeader
+        chip="Quickstart"
+        title="Von Null zur Box in 20 Min."
+        desc="Raspberry Pi OS flashen, einen Befehl ausführen – fertig. Die Box konfiguriert sich danach selbst über deinen Browser."
+      />
 
-        <div className="space-y-12">
-          {STEPS.map((step) => (
-            <div key={step.num} className="flex gap-6">
-              <span className="font-display font-black text-4xl text-amber/20 w-12 flex-shrink-0 leading-none">
-                {step.num}
-              </span>
-              <div>
-                <h2 className="font-display font-semibold text-lg text-paper mb-2">{step.title}</h2>
-                <p className="text-muted text-sm leading-relaxed mb-3">{step.content}</p>
-                {step.code && (
-                  <div className="bg-black/50 border border-border rounded-lg px-4 py-3 font-mono text-sm text-teal select-all">
-                    {step.code}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </main>
-      <Footer />
-    </>
+      <InfoBox icon="💡" title="Was du brauchst" color="honey">
+        Raspberry Pi 3/4/5 · RFID RC522 · OLED 128×64 (I2C) · 5 Taster · Speaker · SD-Karte ≥16 GB
+      </InfoBox>
+
+      <Step num="01" title="Pi OS Bookworm installieren">
+        Mit dem{" "}
+        <a href="https://www.raspberrypi.com/software/" target="_blank" rel="noopener noreferrer"
+           className="text-honey underline underline-offset-2">Raspberry Pi Imager</a>{" "}
+        Bookworm 64-bit Lite auf die SD-Karte flashen.
+        Unter „Erweiterte Optionen" Hostname, SSH und WLAN-Zugangsdaten eintragen.
+      </Step>
+
+      <Step num="02" title="Wundio installieren"
+            code="cd; curl -fsSL https://wundio.dev/install.sh | sudo bash">
+        Das Skript erkennt dein Pi-Modell automatisch, aktiviert SPI + I2C, richtet alle Services ein
+        und startet anschließend einen WLAN-Hotspot für die Ersteinrichtung.
+      </Step>
+
+      <Step num="03" title="Mit Wundio-Setup verbinden">
+        Nach dem Reboot erscheint ein WLAN namens <strong>„Wundio-Setup"</strong>.<br />
+        Passwort: <code className="bg-sand px-1.5 py-0.5 rounded-lg text-honey font-mono text-xs">wundio123</code><br />
+        Browser öffnen und <code className="bg-sand px-1.5 py-0.5 rounded-lg text-honey font-mono text-xs">http://192.168.50.1:8000</code> aufrufen.
+      </Step>
+
+      <Step num="04" title="Heimnetz einrichten">
+        Im Web-Interface unter <strong>Einstellungen → WLAN</strong> dein Netzwerk eintragen.
+        Wundio verbindet sich automatisch und ist dann über die lokale IP erreichbar.
+      </Step>
+
+      <Step num="05" title="Kinder-Profile anlegen">
+        Unter <strong>Kinder</strong> neue Profile mit Emoji-Avatar und Lautstärke erstellen.
+        Jedes Kind bekommt ein eigenes Profil.
+      </Step>
+
+      <Step num="06" title="RFID-Tags zuweisen">
+        Unter <strong>RFID Tags</strong> Figuren oder Karten zu Playlists, Nutzerprofilen
+        oder Systemaktionen zuweisen. Figur auflegen → Musik startet.
+      </Step>
+
+      <InfoBox icon="🔄" title="Updates" color="mint">
+        <CodeBlock>sudo bash /opt/wundio/scripts/update.sh</CodeBlock>
+      </InfoBox>
+    </div>
   );
 }
