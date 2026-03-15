@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wundio - Installation Script
+# Wundio - Installation Script / Installer
 # Usage: curl -fsSL https://wundio.dev/install.sh | sudo bash
 # Or:   sudo bash scripts/install.sh
 
