@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wundio – Installation Script
-# Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/wundio/main/scripts/install.sh | sudo bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/clemensgoering/wundio/main/scripts/install.sh | sudo bash
 # Or:   sudo bash scripts/install.sh
 #
 # This script:
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
-GIT_URL="${WUNDIO_GIT_URL:-https://github.com/YOUR_ORG/wundio.git}"
+GIT_URL="${WUNDIO_GIT_URL:-https://github.com/clemensgoering/wundio.git}"
 GIT_BRANCH="${WUNDIO_BRANCH:-main}"
 INSTALL_DIR="/opt/wundio"
 DATA_DIR="/var/lib/wundio"
@@ -52,7 +52,7 @@ cat << 'EOF'
     \_/\_/  \__,_|_| |_|\__,_|_|\___/
 
   Interactive Box for Kids
-  github.com/YOUR_ORG/wundio
+  github.com/clemensgoering/wundio
 EOF
 echo -e "${NC}"
 
