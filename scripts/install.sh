@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Wundio – Installation Script
+# Wundio - Installation Script
 # Usage: curl -fsSL https://wundio.dev/install.sh | sudo bash
 # Or:   sudo bash scripts/install.sh
 
 set -euo pipefail
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# -- Config
 GIT_URL="${WUNDIO_GIT_URL:-https://github.com/clemensgoering/wundio.git}"
 GIT_BRANCH="${WUNDIO_BRANCH:-main}"
 INSTALL_DIR="/opt/wundio"
@@ -15,7 +15,7 @@ VENV_DIR="${INSTALL_DIR}/venv"
 WUNDIO_USER="wundio"
 LOG_FILE="/var/log/wundio-install.log"
 
-# ── Colors ────────────────────────────────────────────────────────────────────
+# -- Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -25,13 +25,13 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*" | tee -a "$LOG_FILE"; }
 error()   { echo -e "${RED}[ERR ]${NC}  $*" | tee -a "$LOG_FILE"; exit 1; }
 section() {
     echo "" | tee -a "$LOG_FILE"
-    echo -e "${BOLD}${CYAN}━━━  $*  ━━━${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BOLD}-- $* --${NC}" | tee -a "$LOG_FILE"
 }
 
-# ── Spinner ───────────────────────────────────────────────────────────────────
+# -- Spinner
 # Usage: long_command | spin "Label"
 # Or:    spin "Label" & SPIN_PID=$!; long_command; kill $SPIN_PID
-_spin_frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+_spin_frames=("." "o" "O" "o")
 spin_bg() {
     # Runs in background, prints spinner until killed
     local label="$1"
@@ -58,18 +58,18 @@ run_spin() {
     if [[ $EXIT_CODE -eq 0 ]]; then
         ok "$label"
     else
-        error "$label failed (exit $EXIT_CODE) – see $LOG_FILE"
+        error "$label failed (exit $EXIT_CODE) - see $LOG_FILE"
     fi
     return $EXIT_CODE
 }
 
-# ── Root check ────────────────────────────────────────────────────────────────
+# -- Root check
 [[ $EUID -ne 0 ]] && error "Please run as root: sudo bash install.sh"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 echo "=== Wundio install $(date) ===" >> "$LOG_FILE"
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# -- Banner
 echo -e "${BOLD}"
 cat << 'EOF'
  __        __              _ _
@@ -78,11 +78,11 @@ cat << 'EOF'
    \ V  V /| |_| | | | | (_| | | (_) |
     \_/\_/  \__,_|_| |_|\__,_|_|\___/
 
-  Interactive Box for Kids – wundio.dev
+  Interactive Box for Kids - wundio.dev
 EOF
 echo -e "${NC}"
 
-# ── 1. Hardware Detection ─────────────────────────────────────────────────────
+# -- 1. Hardware Detection
 section "1/10 Detecting hardware"
 
 MODEL_FILE="/proc/device-tree/model"
@@ -91,7 +91,7 @@ if [[ -f "$MODEL_FILE" ]]; then
     info "Model: $HW_MODEL"
 else
     HW_MODEL="unknown"
-    warn "Could not detect Pi model – assuming Pi 3 (minimal features)"
+    warn "Could not detect Pi model - assuming Pi 3 (minimal features)"
 fi
 
 RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
@@ -114,23 +114,23 @@ FEAT_AI_LOCAL=false; FEAT_AI_CLOUD=false; FEAT_GAMES_ADVANCED=false
 
 # Time estimate
 case $PI_GEN in
-    3) EST="20–35 min" ;;
-    4) EST="10–20 min" ;;
-    5) EST="6–12 min"  ;;
-    *) EST="10–20 min" ;;
+    3) EST="20-35 min" ;;
+    4) EST="10-20 min" ;;
+    5) EST="6-12 min"  ;;
+    *) EST="10-20 min" ;;
 esac
 echo ""
 echo -e "  ${YELLOW}Estimated installation time on Pi ${PI_GEN}: ${EST}${NC}"
 echo -e "  ${YELLOW}Please do not interrupt the installation.${NC}"
 echo ""
-ok "Hardware detected – Pi ${PI_GEN}, ${RAM_MB} MB RAM"
+ok "Hardware detected - Pi ${PI_GEN}, ${RAM_MB} MB RAM"
 
-# ── 2. System packages ────────────────────────────────────────────────────────
+# -- 2. System packages
 section "2/10 Installing system packages"
 info "Updating package lists..."
 run_spin "apt update" apt-get update
 
-# ── Build install manifest ────────────────────────────────────────────────────
+# -- Build install manifest
 # Record which packages were already installed BEFORE we touch anything.
 # Uninstall will only remove packages that weren't present before Wundio.
 MANIFEST_DIR="/var/lib/wundio"
@@ -175,7 +175,7 @@ METAEOF
 
 ok "Install manifest created at $MANIFEST_FILE"
 
-info "Installing dependencies (git, python3, i2c-tools, hostapd…)"
+info "Installing dependencies (git, python3, i2c-tools, hostapd...)"
 # Use apt for as many packages as possible to avoid pip compilation later
 run_spin "apt packages" apt-get install -y \
     git \
@@ -190,7 +190,7 @@ run_spin "apt packages" apt-get install -y \
     python3-rpi.gpio \
     python3-spidev
 
-# ── 3. Enable SPI + I2C ───────────────────────────────────────────────────────
+# -- 3. Enable SPI + I2C
 section "3/10 Enabling SPI and I2C"
 if command -v raspi-config &>/dev/null; then
     raspi-config nonint do_spi 0
@@ -201,10 +201,10 @@ else
     [[ ! -f "$CONFIG_FILE" ]] && CONFIG_FILE="/boot/config.txt"
     grep -q "^dtparam=spi=on"     "$CONFIG_FILE" || echo "dtparam=spi=on"     >> "$CONFIG_FILE"
     grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE" || echo "dtparam=i2c_arm=on" >> "$CONFIG_FILE"
-    warn "raspi-config not found – appended SPI/I2C to $CONFIG_FILE"
+    warn "raspi-config not found - appended SPI/I2C to $CONFIG_FILE"
 fi
 
-# ── 4. Create wundio user & directories ──────────────────────────────────────
+# -- 4. Create wundio user & directories
 section "4/10 Creating user and directories"
 if ! id "$WUNDIO_USER" &>/dev/null; then
     useradd --system --no-create-home --shell /bin/false \
@@ -223,10 +223,10 @@ chown -R root:"$WUNDIO_USER" "$CONF_DIR"
 chmod 750 "$CONF_DIR"
 ok "Directories ready"
 
-# ── 5. Clone / update repo ────────────────────────────────────────────────────
+# -- 5. Clone / update repo
 section "5/10 Fetching Wundio source"
 if [[ -d "$INSTALL_DIR/.git" ]]; then
-    info "Repo exists – pulling latest $GIT_BRANCH"
+    info "Repo exists - pulling latest $GIT_BRANCH"
     run_spin "git pull" git -C "$INSTALL_DIR" pull origin "$GIT_BRANCH"
 elif [[ -f "$(dirname "$0")/../core/main.py" ]]; then
     LOCAL_SRC="$(realpath "$(dirname "$0")/..")"
@@ -239,10 +239,10 @@ fi
 chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$INSTALL_DIR"
 ok "Source ready at $INSTALL_DIR"
 
-# ── 6. Python venv ────────────────────────────────────────────────────────────
+# -- 6. Python venv
 section "6/10 Setting up Python environment"
-echo -e "  ${YELLOW}⏱  Pi 3: ca. 5–10 Minuten · Pi 4/5: ca. 2–4 Minuten${NC}"
-echo -e "  ${YELLOW}   Bitte warten – Python-Pakete werden kompiliert...${NC}"
+echo -e "  ${YELLOW}Pi 3: ca. 5-10 Minuten / Pi 4/5: ca. 2-4 Minuten${NC}"
+echo -e "  ${YELLOW}   Bitte warten - Python-Pakete werden kompiliert...${NC}"
 echo ""
 
 info "Creating virtual environment..."
@@ -268,24 +268,24 @@ run_spin "pip hardware" "$VENV_DIR/bin/pip" install \
     "luma.oled"
 ok "Python environment ready"
 
-# ── 6b. librespot via Raspotify ──────────────────────────────────────────────
+# -- 6b. librespot via Raspotify
 # Raspotify is the maintained Debian package wrapping librespot.
 # Supports Pi 3 (armv7), Pi 4, Pi 5 on Bookworm 64-bit and 32-bit.
 # https://github.com/dtcooper/raspotify
 if [[ "$FEAT_SPOTIFY" == "true" ]]; then
     section "6b/10 Installing librespot (Spotify Connect)"
-echo -e "  ${YELLOW}⏱  Normalerweise < 1 Minute (Paket-Download)${NC}"
-echo -e "  ${YELLOW}   Nur wenn kein Paket verfügbar: Rust-Build = 30–60 Min.${NC}"
+echo -e "  ${YELLOW}Normalerweise < 1 Minute (Paket-Download)${NC}"
+echo -e "  ${YELLOW}   Nur wenn kein Paket verfügbar: Rust-Build = 30-60 Min.${NC}"
 echo ""
     mkdir -p "${INSTALL_DIR}/bin"
     LS_DONE=false
 
-    # 1. Raspotify – preferred: works on all Pi models, Bookworm-native .deb
+    # 1. Raspotify - preferred: works on all Pi models, Bookworm-native .deb
     if command -v curl &>/dev/null; then
         info "Installing Raspotify (librespot Debian package)..."
         # Raspotify installs its own apt repo and the librespot binary
         if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh >> "$LOG_FILE" 2>&1; then
-            # Disable the Raspotify systemd service – Wundio manages librespot directly
+            # Disable the Raspotify systemd service - Wundio manages librespot directly
             systemctl disable raspotify 2>/dev/null || true
             systemctl stop    raspotify 2>/dev/null || true
             # Link the installed binary for Wundio
@@ -300,7 +300,7 @@ echo ""
         fi
     fi
 
-    # 2. apt (Debian repos – may be available on some systems)
+    # 2. apt (Debian repos - may be available on some systems)
     if [[ "$LS_DONE" == "false" ]] && apt-cache show librespot &>/dev/null 2>&1; then
         info "Trying apt librespot..."
         if apt-get install -y librespot >> "$LOG_FILE" 2>&1; then
@@ -310,29 +310,29 @@ echo ""
         fi
     fi
 
-    # 3. Build from source (last resort – slow, show live output so user sees progress)
+    # 3. Build from source (last resort - slow, show live output so user sees progress)
     if [[ "$LS_DONE" == "false" ]]; then
-        warn "No package available – building librespot from Rust source."
-        warn "On Pi 3 this takes 30–60 minutes. Output will be shown live."
+        warn "No package available - building librespot from Rust source."
+        warn "On Pi 3 this takes 30-60 minutes. Output will be shown live."
         echo ""
         apt-get install -y pkg-config libssl-dev libasound2-dev >> "$LOG_FILE" 2>&1
         if ! command -v cargo &>/dev/null; then
             info "Installing Rust toolchain (this may take a few minutes)..."
             curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
         fi
-        # Source cargo env – critical step that was missing before
+        # Source cargo env - critical step that was missing before
         # shellcheck disable=SC1090
         source "$HOME/.cargo/env" 2>/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
-        info "Building librespot – live output below:"
-        echo "──────────────────────────────────────────"
+        info "Building librespot - live output below:"
+        echo "------------------------------------------"
         # Run cargo visibly (not via run_spin) so user sees compiler progress
         cargo install librespot --root "${INSTALL_DIR}" 2>&1 | tee -a "$LOG_FILE"
-        echo "──────────────────────────────────────────"
+        echo "------------------------------------------"
         if [[ -f "${INSTALL_DIR}/bin/librespot" ]]; then
             LS_DONE=true
             ok "librespot built from source"
         else
-            error "librespot build failed – see $LOG_FILE"
+            error "librespot build failed - see $LOG_FILE"
         fi
     fi
 
@@ -340,11 +340,11 @@ echo ""
     ok "Spotify (librespot) ready"
 fi
 
-# ── 7. Write config env ───────────────────────────────────────────────────────
-# ── 7/10 Build Web Interface ─────────────────────────────────────────────────
+# -- 7. Write config env
+# -- 7/10 Build Web Interface
 section "7/10 Building Web Interface"
-echo -e "  ${YELLOW}⏱  Pi 3: ca. 5–15 Minuten · Pi 4/5: ca. 2–5 Minuten${NC}"
-echo -e "  ${YELLOW}   Node.js kompiliert die React-App – bitte nicht unterbrechen.${NC}"
+echo -e "  ${YELLOW}Pi 3: ca. 5-15 Minuten / Pi 4/5: ca. 2-5 Minuten${NC}"
+echo -e "  ${YELLOW}   Node.js kompiliert die React-App - bitte nicht unterbrechen.${NC}"
 echo ""
 
 WEB_DIR="${INSTALL_DIR}/web"
@@ -357,7 +357,7 @@ if [[ -d "$WEB_DIR" ]] && [[ -f "$WEB_DIR/package.json" ]]; then
     fi
     NODE_VER=$(node --version 2>/dev/null | grep -oP '\d+' | head -1 || echo "0")
     if [[ "$NODE_VER" -lt 18 ]]; then
-        info "Node.js v${NODE_VER} too old – installing v20..."
+        info "Node.js v${NODE_VER} too old - installing v20..."
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >> "$LOG_FILE" 2>&1
         run_spin "install nodejs 20" apt-get install -y nodejs
     fi
@@ -365,17 +365,17 @@ if [[ -d "$WEB_DIR" ]] && [[ -f "$WEB_DIR/package.json" ]]; then
     mkdir -p "$WEB_DIST"
     run_spin "npm build (1-3 min)" bash -c "cd \"${WEB_DIR}\" && npm run build 2>&1"
     if [[ -f "${WEB_DIST}/index.html" ]]; then
-        ok "Web interface ready → ${WEB_DIST}"
+        ok "Web interface ready at ${WEB_DIST}"
     else
-        warn "Web build incomplete – retry: cd /opt/wundio/web && npm run build"
+        warn "Web build incomplete - retry: cd /opt/wundio/web && npm run build"
     fi
 else
-    warn "web/ not found – skipping Web UI build (run: cd /opt/wundio/web && npm install && npm run build)"
+    warn "web/ not found - skipping Web UI build (run: cd /opt/wundio/web && npm install && npm run build)"
 fi
 
 section "8/10 Writing configuration"
 cat > "$CONF_DIR/wundio.env" << ENVEOF
-# Wundio – Runtime Configuration
+# Wundio - Runtime Configuration
 # Generated by install.sh on $(date)
 # Edit this file to customise your setup, then: sudo systemctl restart wundio-core
 
@@ -383,7 +383,7 @@ APP_VERSION=0.1.0
 DEBUG=false
 DB_PATH=${DATA_DIR}/wundio.db
 
-# Hardware feature flags (auto-detected – override if needed)
+# Hardware feature flags (auto-detected - override if needed)
 FEAT_SPOTIFY=${FEAT_SPOTIFY}
 FEAT_RFID=${FEAT_RFID}
 FEAT_DISPLAY_OLED=${FEAT_DISPLAY_OLED}
@@ -417,7 +417,7 @@ chmod 640 "$CONF_DIR/wundio.env"
 chown root:"$WUNDIO_USER" "$CONF_DIR/wundio.env"
 ok "Config written to $CONF_DIR/wundio.env"
 
-# ── 8. systemd services ───────────────────────────────────────────────────────
+# -- 8. systemd services
 section "9/10 Installing systemd services"
 SYSTEMD_DIR="/etc/systemd/system"
 for svc in wundio-core wundio-rfid; do
@@ -427,11 +427,11 @@ systemctl daemon-reload
 systemctl enable wundio-rfid wundio-core
 ok "Services registered and enabled"
 
-# ── 9. WiFi Hotspot setup ─────────────────────────────────────────────────────
+# -- 9. WiFi Hotspot setup
 section "10/10 Setting up WiFi hotspot"
 run_spin "hotspot setup" bash "$INSTALL_DIR/scripts/setup-hotspot.sh"
 
-# ── Done ──────────────────────────────────────────────────────────────────────
+# -- Done
 
 # Detect if already on WiFi
 WIFI_ALREADY_CONFIGURED=false
@@ -446,13 +446,13 @@ fi
 LOCAL_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "")
 
 echo ""
-echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}${BOLD}  ✓  Wundio installation complete!${NC}"
-echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}${BOLD}--------------------------------------------${NC}"
+echo -e "${GREEN}${BOLD}  Wundio installation complete.${NC}"
+echo -e "${GREEN}${BOLD}--------------------------------------------${NC}"
 echo ""
 
 if [[ "$WIFI_ALREADY_CONFIGURED" == "true" ]]; then
-    echo -e "  ${GREEN}✓ Pi ist mit deinem Heimnetz verbunden${NC}"
+    echo -e "  Pi ist mit deinem Heimnetz verbunden."
     echo ""
     echo -e "  Nach dem Neustart Wundio öffnen:"
     [[ -n "${LOCAL_IP:-}" ]] && echo -e "    ${YELLOW}http://${LOCAL_IP}:8000${NC}"
@@ -461,14 +461,14 @@ else
     echo -e "  Nach dem Neustart:"
     echo -e "  1. Mit WLAN verbinden:  ${YELLOW}Wundio-Setup${NC}  (Passwort: ${YELLOW}wundio123${NC})"
     echo -e "  2. Browser öffnen:      ${YELLOW}http://192.168.50.1:8000${NC}"
-    echo -e "  3. Heimnetz eintragen → Wundio verbindet sich automatisch"
+    echo -e "  3. Heimnetz eintragen -> Wundio verbindet sich automatisch"
 fi
 
 echo ""
 echo -e "  Log: ${LOG_FILE}"
 echo ""
 
-# ── Auto-reboot ───────────────────────────────────────────────────────────────
+# -- Auto-reboot
 # SPI and I2C are only active after a reboot.
 # wundio-core is enabled via systemd and will start automatically on every boot.
 # We reboot automatically after a short countdown (user can cancel with Ctrl+C).
@@ -481,7 +481,7 @@ systemctl enable wundio-core wundio-rfid 2>/dev/null || true
 ok "Autostart aktiviert (wundio-core, wundio-rfid)"
 
 echo ""
-echo -e "  ${YELLOW}${BOLD}Neustart in 10 Sekunden...${NC}  (Abbrechen: Strg+C)"
+echo -e "  Neustart in 10 Sekunden... (Abbrechen: Strg+C)"
 echo ""
 
 for i in 10 9 8 7 6 5 4 3 2 1; do

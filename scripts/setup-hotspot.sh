@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Wundio – WiFi Hotspot Setup
+# Wundio - WiFi Hotspot Setup
 #
 # Intelligentes Verhalten:
-#   • Pi bereits im Heimnetz verbunden → kein Hotspot, direktes Setup über lokale IP
-#   • Pi nicht verbunden → Hotspot erstellen für Erstkonfiguration
+#   - Pi bereits im Heimnetz verbunden -> kein Hotspot, direktes Setup über lokale IP
+#   - Pi nicht verbunden -> Hotspot erstellen für Erstkonfiguration
 #
 # Bookworm-kompatibel: funktioniert mit NetworkManager und dhcpcd.
 
@@ -25,7 +25,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC}  $*" | tee -a "$LOG_FILE"; }
 # Load env if available
 [[ -f "$CONF_DIR/wundio.env" ]] && source "$CONF_DIR/wundio.env" 2>/dev/null || true
 
-# ── Check: already connected to a WiFi network? ───────────────────────────────
+# -- Check: already connected to a WiFi network?
 _already_connected() {
     # Method 1: iw / iwgetid
     if command -v iwgetid &>/dev/null; then
@@ -45,11 +45,11 @@ _get_local_ip() {
         | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1
 }
 
-# ── Case A: already connected ─────────────────────────────────────────────────
+# -- Case A: already connected
 if _already_connected; then
     LOCAL_IP=$(_get_local_ip)
     info "Pi is already connected to a WiFi network."
-    info "Skipping hotspot – marking WiFi as configured."
+    info "Skipping hotspot - marking WiFi as configured."
 
     # Mark configured in wundio settings file (DB will be updated by wundio-core on startup)
     if [[ -f "$CONF_DIR/wundio.env" ]]; then
@@ -65,9 +65,9 @@ if _already_connected; then
     systemctl disable wundio-hotspot 2>/dev/null || true
 
     echo ""
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}  WiFi already configured – no hotspot needed${NC}"
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}--------------------------------------------${NC}"
+    echo -e "${GREEN}  WiFi already configured - no hotspot needed${NC}"
+    echo -e "${GREEN}--------------------------------------------${NC}"
     echo ""
     if [[ -n "${LOCAL_IP:-}" ]]; then
         echo -e "  Open Wundio in your browser:"
@@ -82,10 +82,10 @@ if _already_connected; then
     exit 0
 fi
 
-# ── Case B: not connected → create hotspot ────────────────────────────────────
-info "No WiFi connection found – setting up hotspot..."
+# -- Case B: not connected -> create hotspot
+info "No WiFi connection found - setting up hotspot..."
 
-# ── Disable whatever currently manages wlan0 ─────────────────────────────────
+# -- Disable whatever currently manages wlan0
 
 # NetworkManager (Bookworm default on desktop, sometimes on Lite too)
 if command -v nmcli &>/dev/null; then
@@ -99,7 +99,7 @@ if systemctl is-active --quiet dhcpcd 2>/dev/null; then
     systemctl stop dhcpcd 2>/dev/null || true
 fi
 
-# wpa_supplicant – must be stopped so hostapd can claim wlan0
+# wpa_supplicant - must be stopped so hostapd can claim wlan0
 info "Stopping wpa_supplicant..."
 systemctl stop wpa_supplicant 2>/dev/null || true
 pkill wpa_supplicant 2>/dev/null || true
@@ -109,7 +109,7 @@ sleep 1
 ip link set "$IFACE" up 2>/dev/null || true
 ip addr flush dev "$IFACE"  2>/dev/null || true
 
-# ── hostapd config ────────────────────────────────────────────────────────────
+# -- hostapd config
 mkdir -p /etc/hostapd
 cat > /etc/hostapd/wundio-hostapd.conf << EOF
 interface=${IFACE}
@@ -130,7 +130,7 @@ EOF
 # Unblock rfkill if needed
 rfkill unblock wifi 2>/dev/null || true
 
-# ── dnsmasq config ────────────────────────────────────────────────────────────
+# -- dnsmasq config
 cat > /etc/dnsmasq.d/wundio-hotspot.conf << EOF
 interface=${IFACE}
 bind-dynamic
@@ -143,7 +143,7 @@ dhcp-option=6,${HOTSPOT_IP}
 address=/#/${HOTSPOT_IP}
 EOF
 
-# ── systemd service ───────────────────────────────────────────────────────────
+# -- systemd service
 cat > /etc/systemd/system/wundio-hotspot.service << EOF
 [Unit]
 Description=Wundio WiFi Hotspot
@@ -184,9 +184,9 @@ info "Hotspot SSID: '${HOTSPOT_SSID}'  Password: '${HOTSPOT_PASSWORD}'"
 info "Web interface: http://${HOTSPOT_IP}:8000"
 
 echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  Hotspot configured – reboot to activate${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}--------------------------------------------${NC}"
+echo -e "${GREEN}  Hotspot configured - reboot to activate${NC}"
+echo -e "${GREEN}--------------------------------------------${NC}"
 echo ""
 echo -e "  After reboot, connect to WiFi:"
 echo -e "  Network:  ${YELLOW}${HOTSPOT_SSID}${NC}"

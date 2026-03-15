@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wundio – Uninstall Script
+# Wundio - Uninstall Script
 # Entfernt Wundio vollständig. Pakete die vor der Installation bereits
 # vorhanden waren, werden NICHT entfernt (Install-Manifest wird geprüft).
 #
@@ -19,14 +19,14 @@ info()    { echo -e "${BLUE}[INFO]${NC}  $*" | tee -a "$LOG_FILE"; }
 ok()      { echo -e "${GREEN}[ OK ]${NC}  $*" | tee -a "$LOG_FILE"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*" | tee -a "$LOG_FILE"; }
 skip()    { echo -e "  ${CYAN}[SKIP]${NC}  $* (war vor Wundio vorhanden)" | tee -a "$LOG_FILE"; }
-section() { echo -e "\n${BOLD}${CYAN}━━━  $*  ━━━${NC}" | tee -a "$LOG_FILE"; }
+section() { echo -e "\n${BOLD}-- $* --${NC}" | tee -a "$LOG_FILE"; }
 
-# ── Root check ────────────────────────────────────────────────────────────────
+# -- Root check
 [[ $EUID -ne 0 ]] && echo "Run as root: sudo bash uninstall.sh" && exit 1
 
 echo "=== Wundio uninstall $(date) ===" > "$LOG_FILE"
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# -- Banner
 echo -e "${BOLD}"
 cat << 'EOF'
  __        __              _ _
@@ -39,7 +39,7 @@ cat << 'EOF'
 EOF
 echo -e "${NC}"
 
-# ── Show install info if manifest exists ──────────────────────────────────────
+# -- Show install info if manifest exists
 if [[ -f "$MANIFEST_META" ]]; then
     echo -e "  ${CYAN}Installation vom:${NC}"
     grep "install_date" "$MANIFEST_META" | sed 's/install_date=/    /' || true
@@ -49,17 +49,17 @@ fi
 
 echo -e "  ${YELLOW}${BOLD}Achtung: Alle Wundio-Daten und Konfigurationen werden entfernt.${NC}"
 
-# ── Interactive confirmation ─────────────────────────────────────────────────
+# -- Interactive confirmation
 # Safe for both direct execution and curl|bash
 if [[ -t 0 ]]; then
-    # Running interactively – ask user
+    # Running interactively - ask user
     read -rp "  Wirklich deinstallieren? [ja/N] " ans
     if [[ "$ans" != "ja" && "$ans" != "Ja" && "$ans" != "JA" ]]; then
         echo "Abgebrochen."
         exit 0
     fi
 else
-    # Piped (curl|bash) – default safe: abort
+    # Piped (curl|bash) - default safe: abort
     echo ""
     echo -e "  ${RED}Kein interaktiver Modus erkannt (curl|bash).${NC}"
     echo -e "  Bitte direkt ausführen:"
@@ -70,17 +70,17 @@ fi
 
 echo ""
 
-# ── Helper: was this package installed by Wundio? ─────────────────────────────
+# -- Helper: was this package installed by Wundio?
 _wundio_installed_pkg() {
     local pkg="$1"
     if [[ ! -f "$MANIFEST_FILE" ]]; then
-        # No manifest → installed before we tracked – be conservative, skip removal
+        # No manifest -> installed before we tracked - be conservative, skip removal
         return 1
     fi
     grep -q "^installed-by-wundio:${pkg}$" "$MANIFEST_FILE" 2>/dev/null
 }
 
-# ── 1. Stop and disable all services ─────────────────────────────────────────
+# -- 1. Stop and disable all services
 section "1/6  Stopping services"
 
 for svc in wundio-core wundio-rfid wundio-hotspot; do
@@ -99,7 +99,7 @@ pkill -f "uvicorn.*main:app" 2>/dev/null || true
 pkill -f "hostapd.*wundio"   2>/dev/null || true
 ok "Port 8000 freigegeben"
 
-# ── 2. Remove systemd service files ──────────────────────────────────────────
+# -- 2. Remove systemd service files
 section "2/6  Removing systemd units"
 
 for svc in wundio-core wundio-rfid wundio-hotspot; do
@@ -113,7 +113,7 @@ systemctl daemon-reload
 systemctl reset-failed 2>/dev/null || true
 ok "systemd bereinigt"
 
-# ── 3. Remove network config (only Wundio-specific files) ────────────────────
+# -- 3. Remove network config (only Wundio-specific files)
 section "3/6  Restoring network configuration"
 
 # Only remove our specific config files, never touch base hostapd/dnsmasq config
@@ -136,7 +136,7 @@ fi
 
 ok "Netzwerk wiederhergestellt"
 
-# ── 4. Remove Raspotify (only if Wundio installed it) ────────────────────────
+# -- 4. Remove Raspotify (only if Wundio installed it)
 section "4/6  Removing Spotify (librespot)"
 
 if _wundio_installed_pkg "raspotify" || _wundio_installed_pkg "librespot"; then
@@ -153,7 +153,7 @@ else
     skip "librespot/raspotify (nicht durch Wundio installiert)"
 fi
 
-# ── 5. Remove apt packages (only those Wundio installed) ─────────────────────
+# -- 5. Remove apt packages (only those Wundio installed)
 section "5/6  Removing packages (nur Wundio-eigene)"
 
 if [[ ! -f "$MANIFEST_FILE" ]]; then
@@ -180,7 +180,7 @@ else
     fi
 fi
 
-# ── 6. Remove all Wundio files and user ──────────────────────────────────────
+# -- 6. Remove all Wundio files and user
 section "6/6  Removing Wundio files and user"
 
 for dir in /opt/wundio /var/lib/wundio /etc/wundio; do
@@ -199,19 +199,19 @@ if id wundio &>/dev/null; then
     ok "User 'wundio' entfernt"
 fi
 
-# ── Done ──────────────────────────────────────────────────────────────────────
+# -- Done
 echo ""
-echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}${BOLD}  ✓  Wundio vollständig entfernt${NC}"
-echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}${BOLD}--------------------------------------------${NC}"
+echo -e "${GREEN}${BOLD}  Wundio vollstaendig entfernt.${NC}"
+echo -e "${GREEN}${BOLD}--------------------------------------------${NC}"
 echo ""
 echo -e "  Entfernt:"
-echo -e "    ✓ Alle systemd-Dienste"
-echo -e "    ✓ Port 8000 freigegeben"
-echo -e "    ✓ Wundio-spezifische Netzwerk-Konfiguration"
-echo -e "    ✓ Alle Dateien (/opt/wundio, /var/lib/wundio, /etc/wundio)"
-echo -e "    ✓ System-User 'wundio'"
-echo -e "    ✓ Nur Wundio-eigene apt-Pakete (vorhandene Pakete blieben erhalten)"
+echo -e "  - systemd-Dienste gestoppt"
+echo -e "  - Port 8000 freigegeben"
+echo -e "  - Netzwerk-Konfiguration entfernt"
+echo -e "  - Dateien entfernt (/opt/wundio, /var/lib/wundio, /etc/wundio)"
+echo -e "  - System-User 'wundio' entfernt"
+echo -e "  - Wundio-eigene apt-Pakete entfernt (vorhandene Pakete unveraendert)"
 echo ""
 echo -e "  Ein Neustart wird empfohlen: ${YELLOW}sudo reboot${NC}"
 echo ""
