@@ -153,6 +153,92 @@ class SpotifyService:
         except Exception:
             pass
 
+    def play_uri(self, spotify_uri: str) -> bool:
+        """
+        Trigger playback of a Spotify URI on this device via the Web API.
+        Requires SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN
+        to be set in wundio.env. Returns True if the request was sent.
+        """
+        try:
+            from config import get_settings
+            cfg = get_settings()
+            client_id     = getattr(cfg, "spotify_client_id",     "")
+            client_secret = getattr(cfg, "spotify_client_secret", "")
+            refresh_token = getattr(cfg, "spotify_refresh_token", "")
+
+            if not all([client_id, client_secret, refresh_token]):
+                logger.info(
+                    f"Spotify Web API not configured – cannot auto-play {spotify_uri}. "
+                    "Add SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN "
+                    "to /etc/wundio/wundio.env"
+                )
+                return False
+
+            # Get fresh access token
+            import urllib.request, urllib.parse, base64
+            creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+            token_req = urllib.request.Request(
+                "https://accounts.spotify.com/api/token",
+                data=urllib.parse.urlencode({
+                    "grant_type":    "refresh_token",
+                    "refresh_token": refresh_token,
+                }).encode(),
+                headers={
+                    "Authorization": f"Basic {creds}",
+                    "Content-Type":  "application/x-www-form-urlencoded",
+                },
+            )
+            import json as _json
+            with urllib.request.urlopen(token_req, timeout=5) as resp:
+                token_data = _json.loads(resp.read())
+            access_token = token_data.get("access_token", "")
+            if not access_token:
+                logger.warning("Spotify token refresh failed")
+                return False
+
+            # Get device ID of this Wundio instance
+            devices_req = urllib.request.Request(
+                "https://api.spotify.com/v1/me/player/devices",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            with urllib.request.urlopen(devices_req, timeout=5) as resp:
+                devices = _json.loads(resp.read()).get("devices", [])
+
+            device_id = None
+            for d in devices:
+                if self._device_name.lower() in d.get("name", "").lower():
+                    device_id = d["id"]
+                    break
+            if not device_id and devices:
+                device_id = devices[0]["id"]  # fallback to first device
+            if not device_id:
+                logger.warning("No Spotify device found – is librespot running?")
+                return False
+
+            # Start playback
+            play_body = _json.dumps({
+                "context_uri": spotify_uri if "playlist" in spotify_uri or "album" in spotify_uri else None,
+                "uris":        [spotify_uri] if "track" in spotify_uri else None,
+            }).encode()
+            # Remove None values
+            play_data = {k: v for k, v in _json.loads(play_body).items() if v is not None}
+            play_req = urllib.request.Request(
+                f"https://api.spotify.com/v1/me/player/play?device_id={device_id}",
+                data=_json.dumps(play_data).encode(),
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type":  "application/json",
+                },
+                method="PUT",
+            )
+            with urllib.request.urlopen(play_req, timeout=5) as resp:
+                logger.info(f"Spotify playback started: {spotify_uri} (status {resp.status})")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Spotify play_uri failed: {e}")
+            return False
+
     def stop(self) -> None:
         if self._process:
             self._process.terminate()

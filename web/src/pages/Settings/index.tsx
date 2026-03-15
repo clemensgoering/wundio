@@ -1,207 +1,254 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
-import { Button, Card, Input, Spinner, Badge } from "@/components/ui";
-import type { SystemStatus } from "@/types/api";
+import { Card, Input, Button, Badge, Spinner } from "@/components/ui";
 
-interface WifiStatus { configured: boolean; ssid: string; hotspot: boolean; }
+interface EnvEntry {
+  key:         string;
+  label:       string;
+  description: string;
+  type:        string;
+  section:     string;
+  secret:      boolean;
+  has_value:   boolean;
+  value:       string;
+  options?:    string[];
+}
+
+interface WifiStatus {
+  configured: boolean;
+  ssid:       string;
+  hotspot:    boolean;
+}
+
+const SECTION_LABELS: Record<string, string> = {
+  spotify:     "Spotify – Gerät",
+  spotify_api: "Spotify – Web API (für RFID Playlist-Autostart)",
+  hotspot:     "WLAN Hotspot (Ersteinrichtung)",
+  hardware:    "Hardware (Erweitert)",
+};
+
+const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 export default function Settings() {
-  const { data: status, mutate } = useSWR<SystemStatus>(
-    "status", () => api.status() as Promise<SystemStatus>, { refreshInterval: 10000 }
-  );
-  const { data: wifiStatus } = useSWR<WifiStatus>(
-    "wifi-status", () => fetch("/api/wifi/status").then(r => r.json()),
-    { refreshInterval: 15000 }
-  );
+  const { data: envEntries, mutate: mutateEnv } =
+    useSWR<EnvEntry[]>("/api/settings/env/all", fetcher);
+  const { data: wifiStatus } =
+    useSWR<WifiStatus>("/api/wifi/status", fetcher, { refreshInterval: 15000 });
 
-  const [wifi, setWifi]         = useState({ ssid: "", password: "" });
-  const [saving, setSaving]     = useState<string | null>(null);
-  const [saved,  setSaved]      = useState<string | null>(null);
-  const [spotifyName, setSpotifyName] = useState("Wundio");
-  const [showWifiForm, setShowWifiForm] = useState(false);
+  const [values,  setValues]  = useState<Record<string, string>>({});
+  const [dirty,   setDirty]   = useState<Record<string, boolean>>({});
+  const [saving,  setSaving]  = useState<Record<string, boolean>>({});
+  const [saved,   setSaved]   = useState<Record<string, boolean>>({});
+  const [errors,  setErrors]  = useState<Record<string, string>>({});
+  const [showWifi, setShowWifi] = useState(false);
+  const [wifiForm, setWifiForm] = useState({ ssid: "", password: "" });
+  const [wifiSaving, setWifiSaving] = useState(false);
+  const [restartBanner, setRestartBanner] = useState(false);
 
+  // Init form values from env (skip masked secrets that already have a value)
   useEffect(() => {
-    api.getSetting("spotify_device_name")
-      .then((r: any) => { if (r.value) setSpotifyName(r.value); })
-      .catch(() => {});
-  }, []);
+    if (!envEntries) return;
+    const init: Record<string, string> = {};
+    envEntries.forEach(e => {
+      init[e.key] = e.has_value && e.secret ? "" : e.value;
+    });
+    setValues(init);
+  }, [envEntries]);
 
-  const saveSetting = async (key: string, value: string, label: string) => {
-    setSaving(label);
-    await api.setSetting(key, value);
-    setSaving(null); setSaved(label);
-    setTimeout(() => setSaved(null), 2500);
+  const patch = (key: string, val: string) => {
+    setValues(v => ({ ...v, [key]: val }));
+    setDirty(d => ({ ...d, [key]: true }));
   };
 
-  if (!status) return <div className="flex items-center justify-center h-64"><Spinner size={32} /></div>;
+  const save = async (key: string) => {
+    const val = values[key] ?? "";
+    setSaving(s => ({ ...s, [key]: true }));
+    setErrors(e => ({ ...e, [key]: "" }));
+    try {
+      const r = await fetch(`/api/settings/env/${key}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: val }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail ?? "Fehler");
+      setDirty(d => ({ ...d, [key]: false }));
+      setSaved(s => ({ ...s, [key]: true }));
+      if (data.restart_required) setRestartBanner(true);
+      setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
+      mutateEnv();
+    } catch (e: any) {
+      setErrors(er => ({ ...er, [key]: e.message }));
+    } finally {
+      setSaving(s => ({ ...s, [key]: false }));
+    }
+  };
+
+  const saveWifi = async () => {
+    if (!wifiForm.ssid) return;
+    setWifiSaving(true);
+    try {
+      await fetch("/api/wifi/configure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(wifiForm),
+      });
+      setShowWifi(false);
+      setWifiForm({ ssid: "", password: "" });
+    } finally { setWifiSaving(false); }
+  };
+
+  const restartService = async () => {
+    await fetch("/api/system/restart", { method: "POST" }).catch(() => {});
+    setRestartBanner(false);
+  };
+
+  if (!envEntries) return <div className="flex justify-center py-20"><Spinner size={32} /></div>;
+
+  // Group by section
+  const sections = Object.entries(
+    envEntries.reduce((acc, e) => {
+      (acc[e.section] = acc[e.section] ?? []).push(e);
+      return acc;
+    }, {} as Record<string, EnvEntry[]>)
+  );
 
   return (
     <div className="max-w-2xl space-y-6">
       <div>
         <h1 className="font-display font-extrabold text-3xl text-paper mb-1">Einstellungen</h1>
-        <p className="text-muted text-sm">System und Netzwerk konfigurieren</p>
+        <p className="text-muted text-sm">Konfiguration wird direkt in wundio.env gespeichert.</p>
       </div>
 
-      {/* System status */}
+      {/* Restart banner */}
+      {restartBanner && (
+        <div className="bg-amber/10 border border-amber/30 rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-display font-bold text-amber">Neustart erforderlich</p>
+            <p className="text-xs text-muted mt-0.5">
+              Einige Änderungen werden erst nach dem Neustart des Dienstes aktiv.
+            </p>
+          </div>
+          <Button size="sm" onClick={restartService}>Jetzt neu starten</Button>
+        </div>
+      )}
+
+      {/* WiFi section */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider">System</p>
-          <Badge color={status.setup_complete ? "teal" : "amber"}>
-            {status.setup_complete ? "Bereit" : "Setup ausstehend"}
+          <div>
+            <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-1">
+              WLAN
+            </p>
+            {wifiStatus?.configured && wifiStatus.ssid && (
+              <p className="text-sm font-display font-bold text-paper">{wifiStatus.ssid}</p>
+            )}
+          </div>
+          <Badge color={wifiStatus?.configured ? "teal" : "amber"}>
+            {wifiStatus?.configured ? "Verbunden" : "Nicht verbunden"}
           </Badge>
         </div>
-        <div className="space-y-2 text-sm">
-          <InfoRow label="Version"    value={`v${status.version}`} />
-          <InfoRow label="Hardware"   value={status.hardware.model || "—"} />
-          <InfoRow label="RAM"        value={`${status.hardware.ram_mb} MB`} />
-          <InfoRow label="Pi Gen"     value={`${status.hardware.pi_generation}`} />
-        </div>
-        {!status.setup_complete && (
-          <div className="mt-4">
-            <Button loading={saving === "setup"} onClick={async () => {
-              setSaving("setup");
-              await api.completeSetup();
-              await mutate();
-              setSaving(null);
-            }}>
-              Setup abschliessen
-            </Button>
-          </div>
-        )}
-      </Card>
 
-      {/* WiFi - shows current connection, allows change */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider">WLAN</p>
-          {wifiStatus && (
-            <Badge color={wifiStatus.configured ? "teal" : "amber"}>
-              {wifiStatus.configured ? "Verbunden" : "Nicht konfiguriert"}
-            </Badge>
-          )}
-        </div>
-
-        {wifiStatus?.configured && wifiStatus.ssid && (
-          <div className="mb-4 bg-teal/5 border border-teal/20 rounded-xl px-4 py-3">
-            <p className="text-xs text-muted mb-0.5">Aktuelles Netzwerk</p>
-            <p className="font-display font-semibold text-paper">{wifiStatus.ssid}</p>
-          </div>
-        )}
-
-        {!showWifiForm ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowWifiForm(true)}
-          >
+        {!showWifi ? (
+          <Button variant="secondary" size="sm" onClick={() => setShowWifi(true)}>
             {wifiStatus?.configured ? "Netzwerk wechseln" : "WLAN einrichten"}
           </Button>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs text-muted">
-              Nach dem Speichern verbindet sich Wundio mit dem neuen Netzwerk.
-              Danach ist das Gerät unter der neuen IP erreichbar.
-            </p>
-            <Input
-              label="SSID (Netzwerkname)"
-              placeholder="MeinHeimnetz"
-              value={wifi.ssid}
-              onChange={e => setWifi(w => ({ ...w, ssid: e.target.value }))}
-            />
-            <Input
-              label="Passwort"
-              type="password"
-              placeholder="••••••••"
-              value={wifi.password}
-              onChange={e => setWifi(w => ({ ...w, password: e.target.value }))}
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                disabled={!wifi.ssid}
-                loading={saving === "wifi"}
-                onClick={async () => {
-                  setSaving("wifi");
-                  try {
-                    await fetch("/api/wifi/configure", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ ssid: wifi.ssid, password: wifi.password }),
-                    });
-                    setSaved("wifi");
-                    setShowWifiForm(false);
-                    setTimeout(() => setSaved(null), 2500);
-                  } finally { setSaving(null); }
-                }}
-              >
+            <Input label="SSID" placeholder="Netzwerkname"
+              value={wifiForm.ssid}
+              onChange={e => setWifiForm(f => ({ ...f, ssid: e.target.value }))} />
+            <Input label="Passwort" type="password" placeholder="••••••••"
+              value={wifiForm.password}
+              onChange={e => setWifiForm(f => ({ ...f, password: e.target.value }))} />
+            <div className="flex gap-2">
+              <Button loading={wifiSaving} disabled={!wifiForm.ssid} onClick={saveWifi}>
                 Speichern
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowWifiForm(false)}>
+              <Button variant="ghost" size="sm" onClick={() => setShowWifi(false)}>
                 Abbrechen
               </Button>
-              {saved === "wifi" && <span className="text-xs text-teal">Gespeichert</span>}
             </div>
           </div>
         )}
       </Card>
 
-      {/* Spotify */}
-      <Card className="p-6">
-        <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-4">Spotify</p>
-        <p className="text-xs text-muted mb-4">
-          Name des Geräts in der Spotify App.
-          Wundio erscheint automatisch als Lautsprecher, sobald Spotify Premium aktiv ist
-          und App und Pi im gleichen Netzwerk sind.
-        </p>
-        <div className="flex items-end gap-3">
-          <Input
-            label="Gerätename"
-            placeholder="Wundio"
-            value={spotifyName}
-            onChange={e => setSpotifyName(e.target.value)}
-            className="flex-1"
-          />
-          <Button
-            loading={saving === "spotify"}
-            onClick={() => saveSetting("spotify_device_name", spotifyName, "spotify")}
-          >
-            Speichern
-          </Button>
-        </div>
-        {saved === "spotify" && <p className="text-xs text-teal mt-2">Gespeichert – Neustart empfohlen</p>}
-      </Card>
+      {/* Env sections */}
+      {sections.map(([section, entries]) => (
+        <Card key={section} className="p-6">
+          <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-1">
+            {SECTION_LABELS[section] ?? section}
+          </p>
 
-      {/* Features */}
-      <Card className="p-6">
-        <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-3">
-          Aktive Features
-        </p>
-        <p className="text-xs text-muted mb-4">
-          Automatisch erkannt basierend auf dem Pi-Modell.
-          Manuell überschreibbar in{" "}
-          <code className="text-teal bg-black/40 px-1 rounded">/etc/wundio/wundio.env</code>.
-        </p>
-        <div className="grid grid-cols-2 gap-2.5">
-          {Object.entries(status.features).map(([key, enabled]) => (
-            <div key={key} className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${enabled ? "bg-teal" : "bg-border"}`} />
-              <span className={`text-sm ${enabled ? "text-paper/70" : "text-muted/40"}`}>
-                {key.replace(/_/g, " ")}
-              </span>
-              <Badge color={enabled ? "teal" : "muted"}>{enabled ? "An" : "Aus"}</Badge>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
+          {section === "spotify_api" && (
+            <p className="text-xs text-muted mb-4 leading-relaxed">
+              Notwendig damit RFID-Tags Playlists automatisch starten.{" "}
+              <a href="https://developer.spotify.com/dashboard"
+                 target="_blank" rel="noopener noreferrer"
+                 className="text-teal underline underline-offset-2">
+                App im Spotify Developer Dashboard erstellen
+              </a>
+              {" "}– dann Client ID und Secret eintragen.
+              Den Refresh Token generiert Wundio automatisch nach der Autorisierung (kommt bald).
+            </p>
+          )}
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-muted">{label}</span>
-      <span className="text-paper/70 font-mono text-xs">{value}</span>
+          <div className="space-y-4 mt-4">
+            {entries.map(e => (
+              <div key={e.key}>
+                <div className="flex items-end gap-2">
+                  {e.type === "select" ? (
+                    <div className="flex-1">
+                      <label className="block text-xs font-display font-semibold text-muted mb-1.5">
+                        {e.label}
+                      </label>
+                      <select
+                        value={values[e.key] ?? ""}
+                        onChange={ev => patch(e.key, ev.target.value)}
+                        className="w-full bg-surface border border-border rounded-xl px-3 py-2.5
+                                   text-sm text-paper focus:outline-none focus:border-amber
+                                   transition-colors"
+                      >
+                        {e.options?.map(o => (
+                          <option key={o} value={o}>{o} kbit/s</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <Input
+                      label={e.label}
+                      type={e.type === "password" ? "password" : "text"}
+                      placeholder={
+                        e.has_value && e.secret
+                          ? "Bereits gesetzt – neu eingeben um zu ändern"
+                          : e.description
+                      }
+                      value={values[e.key] ?? ""}
+                      onChange={ev => patch(e.key, ev.target.value)}
+                      className="flex-1 font-mono text-sm"
+                    />
+                  )}
+                  <Button
+                    size="sm"
+                    disabled={!dirty[e.key]}
+                    loading={saving[e.key]}
+                    onClick={() => save(e.key)}
+                  >
+                    {saved[e.key] ? "Gespeichert" : "Speichern"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted mt-1">{e.description}</p>
+                {errors[e.key] && (
+                  <p className="text-xs text-red-400 mt-1">{errors[e.key]}</p>
+                )}
+                {e.has_value && e.secret && (
+                  <p className="text-xs text-teal/70 mt-0.5">Bereits konfiguriert</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }

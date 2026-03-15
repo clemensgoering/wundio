@@ -6,11 +6,12 @@ import type { SystemStatus } from "@/types/api";
 const fetcher = () => api.status() as Promise<SystemStatus>;
 
 const NAV = [
-  { to: "/",         icon: "⊞", label: "Dashboard" },
-  { to: "/playback", icon: "▶", label: "Wiedergabe"  },
-  { to: "/users",    icon: "👤", label: "Kinder"     },
-  { to: "/rfid",     icon: "⬡", label: "RFID Tags"  },
-  { to: "/settings", icon: "⚙", label: "Einstellungen" },
+  { to: "/",         icon: "—", label: "Dashboard"     },
+  { to: "/playback", icon: "—", label: "Wiedergabe"    },
+  { to: "/users",    icon: "—", label: "Kinder"        },
+  { to: "/rfid",     icon: "—", label: "RFID Tags"     },
+  { to: "/log",      icon: "—", label: "Aktivitäten"  },
+  { to: "/settings", icon: "—", label: "Einstellungen" },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {

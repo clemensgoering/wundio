@@ -1,5 +1,5 @@
 """
-Wundio – FastAPI Core Application - Update
+Wundio – FastAPI Core Application
 """
 
 import logging
@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from config import get_settings
-from database import init_db, get_setting, log_event
+from database import init_db, get_setting, set_setting, log_event
 from services.hardware import get_profile
 from services.display import get_display
 from services.rfid import get_rfid_service
@@ -28,6 +28,50 @@ logging.basicConfig(
 logger = logging.getLogger("wundio")
 
 
+def _sync_network_state() -> None:
+    """
+    On every boot: check actual network state and sync DB flags.
+    Fixes 'Setup ausstehend' and 'WLAN nicht konfiguriert' when the Pi
+    was flashed with WiFi credentials or is already connected.
+    """
+    import subprocess
+
+    # Check if wlan0 has an IP address (= connected to a network)
+    connected = False
+    ssid = ""
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "addr", "show", "wlan0"],
+            capture_output=True, text=True, timeout=3
+        )
+        connected = "inet " in result.stdout
+    except Exception:
+        pass
+
+    # Try to get SSID if connected
+    if connected:
+        try:
+            r = subprocess.run(
+                ["iwgetid", "wlan0", "--raw"],
+                capture_output=True, text=True, timeout=3
+            )
+            ssid = r.stdout.strip()
+        except Exception:
+            pass
+
+    if connected:
+        set_setting("wifi_configured", "true")
+        set_setting("hotspot_active",  "false")
+        if ssid:
+            set_setting("wifi_ssid", ssid)
+        # Mark setup complete when connected – user can reach the dashboard
+        set_setting("setup_complete", "true")
+        logger.info(f"Network state synced: connected to '{ssid or 'unknown'}'")
+    else:
+        # Not connected – hotspot mode or first run
+        logger.info("Network state synced: no WiFi connection detected")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = get_settings()
@@ -40,7 +84,10 @@ async def lifespan(app: FastAPI):
 
     # 2. Database
     init_db(cfg.db_path)
-    log_event("system", f"Wundio {cfg.app_version} starting on {hw.model}")
+    log_event("system", f"Wundio {cfg.app_version} gestartet auf {hw.model}")
+
+    # 2b. Auto-detect WiFi and setup state on every boot
+    _sync_network_state()
 
     # 3. RFID
     rfid = get_rfid_service()
@@ -84,10 +131,10 @@ async def lifespan(app: FastAPI):
     setup_complete = get_setting("setup_complete") == "true"
     if not setup_complete or get_setting("hotspot_active") == "true":
         display.show_setup(cfg.hotspot_ssid, cfg.hotspot_ip)
-        log_event("system", "Setup mode active")
+        log_event("system", "Ersteinrichtung aktiv – Warte auf WLAN-Verbindung")
     else:
         display.show_idle()
-        log_event("system", "Ready")
+        log_event("system", "Bereit")
 
     logger.info(f"Wundio ready – http://{cfg.host}:{cfg.port}")
     logger.info(f"Hardware: {hw.model} | Features: {hw.to_dict()['features']}")
@@ -100,7 +147,7 @@ async def lifespan(app: FastAPI):
     rfid.stop()
     spotify.stop()
     display.clear()
-    log_event("system", "Wundio shutdown")
+    log_event("system", "Wundio beendet")
 
 
 async def _on_rfid_scan(uid: str) -> None:
@@ -110,29 +157,50 @@ async def _on_rfid_scan(uid: str) -> None:
     display = get_display()
     spotify = get_spotify_service()
 
+    import time as _time
+    # Always store last scanned UID so the UI can pick it up for tag assignment
+    set_setting("rfid_last_scan_uid", uid)
+    set_setting("rfid_last_scan_ts",  str(int(_time.time())))
+
     with Session(get_engine()) as session:
         action = resolve_rfid_action(session, uid)
 
     if action is None:
         display.show_error("Unbekannter Tag")
-        log_event("rfid", f"Unknown tag: {uid}", level="WARN")
+        log_event("rfid", f"Unbekannte Karte/Figur aufgelegt (UID: {uid}) – noch nicht zugewiesen", level="WARN")
         return
 
-    log_event("rfid", f"Tag: {uid} → {action}")
+    # Human-readable log is written per action type below
 
     if action["type"] == "user_login":
-        from database import get_engine, User, set_setting
-        from sqlmodel import Session
-        with Session(get_engine()) as s:
+        from database import get_engine, User
+        from sqlmodel import Session as _Session
+        with _Session(get_engine()) as s:
             user = s.get(User, action["user_id"])
             if user:
                 set_setting("active_user_id", str(user.id))
                 spotify.set_volume(user.volume)
                 display.show_user_login(user.display_name)
+                log_event("rfid", f"Kind eingeloggt: {user.display_name} (Lautstärke: {user.volume}%)")
 
     elif action["type"] == "playlist":
-        display.show_idle("▶ Playlist")
-        # Spotify Web API play call will be added in Phase 2
+        uri = action.get("spotify_uri", "")
+        tag_label = action.get("label", "Playlist")
+        if uri:
+            played = spotify.play_uri(uri)
+            if played:
+                display.show_idle(tag_label)
+                log_event("rfid", f"Playlist gestartet: {tag_label} ({uri})")
+            else:
+                display.show_idle(tag_label)
+                log_event(
+                    "rfid",
+                    f"Playlist-Tag erkannt: {tag_label} – Spotify Web API nicht konfiguriert. "
+                    "SPOTIFY_CLIENT_ID etc. in /etc/wundio/wundio.env eintragen.",
+                    level="WARN"
+                )
+        else:
+            log_event("rfid", f"Playlist-Tag {uid} hat keine URI – bitte im Dashboard ergänzen", level="WARN")
 
     elif action["type"] == "action":
         act = action["action"]
@@ -150,7 +218,7 @@ async def _on_button_press(name: str) -> None:
     spotify = get_spotify_service()
     state   = spotify.get_state()
 
-    log_event("buttons", f"Button: {name}")
+    log_event("buttons", f"Taste: {name.replace('_', ' ')} gedrückt")
 
     if name == "vol_up":
         spotify.set_volume(min(100, state.volume + 5))
@@ -220,8 +288,8 @@ async def _on_voice_action(intent) -> None:
     elif intent.type == "user_switch":
         name = intent.params.get("name", "").strip()
         from database import get_engine, User
-        from sqlmodel import Session, select
-        with Session(get_engine()) as s:
+        from sqlmodel import Session as _Session, select
+        with _Session(get_engine()) as s:
             user = s.exec(
                 select(User).where(User.display_name.ilike(f"%{name}%"))
             ).first()

@@ -80,19 +80,20 @@ class RfidService:
         return await loop.run_in_executor(None, self._read_uid_blocking)
 
     def _read_uid_blocking(self) -> Optional[str]:
-        """Blocking UID read – runs in thread pool."""
+        """Blocking UID read – runs in thread pool.
+
+        Uses the mxgxw/pimylifeup mfrc522 API (v0.0.7):
+          MFRC522_Request → MFRC522_Anticoll → uid as list of ints
+        """
         if not self._reader:
             return None
         try:
-            # Use the lower-level MFRC522_Request + MFRC522_SelectTagSN
-            # for UID-only (no NDEF read needed)
-            (status, _) = self._reader.READER.MFRC522_Request(
-                self._reader.READER.PICC_REQIDL
-            )
-            if status != self._reader.READER.MI_OK:
+            reader = self._reader.READER
+            (status, _) = reader.MFRC522_Request(reader.PICC_REQIDL)
+            if status != reader.MI_OK:
                 return None
-            (status, uid_bytes) = self._reader.READER.MFRC522_SelectTagSN()
-            if status != self._reader.READER.MI_OK:
+            (status, uid_bytes) = reader.MFRC522_Anticoll()
+            if status != reader.MI_OK:
                 return None
             return "".join(f"{b:02X}" for b in uid_bytes)
         except Exception:

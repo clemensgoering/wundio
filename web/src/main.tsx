@@ -7,6 +7,7 @@ import Users     from "@/pages/Users";
 import RfidPage  from "@/pages/RFID";
 import Playback  from "@/pages/Playback";
 import Settings  from "@/pages/Settings";
+import LogPage   from "@/pages/Log";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -19,6 +20,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/users"    element={<Users />}     />
           <Route path="/rfid"     element={<RfidPage />}  />
           <Route path="/settings" element={<Settings />}  />
+          <Route path="/log"      element={<LogPage />}   />
         </Routes>
       </AppLayout>
     </BrowserRouter>

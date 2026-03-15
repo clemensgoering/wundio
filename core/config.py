@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # ── Spotify / librespot ───────────────────────────────────────────
     spotify_device_name: str = "Wundio"
     spotify_bitrate: int = 160
+    # Web API credentials (optional – needed for RFID playlist auto-play)
+    # Setup guide: https://wundio.dev/docs/spotify-setup
+    spotify_client_id:     str = ""
+    spotify_client_secret: str = ""
+    spotify_refresh_token: str = ""
 
     # ── WiFi Hotspot (first-run AP) ───────────────────────────────────
     hotspot_ssid: str = "Wundio-Setup"

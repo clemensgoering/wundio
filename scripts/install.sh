@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wundio - Installation Script / Installer
+# Wundio - Installation Script
 # Usage: curl -fsSL https://wundio.dev/install.sh | sudo bash
 # Or:   sudo bash scripts/install.sh
 
@@ -361,8 +361,11 @@ if [[ -d "$WEB_DIR" ]] && [[ -f "$WEB_DIR/package.json" ]]; then
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >> "$LOG_FILE" 2>&1
         run_spin "install nodejs 20" apt-get install -y nodejs
     fi
-    run_spin "npm install" bash -c "cd \"${WEB_DIR}\" && npm install 2>&1"
+    # Ensure build output dir is writable by wundio user before building
     mkdir -p "$WEB_DIST"
+    chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$WEB_DIST"
+    chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$WEB_DIR"
+    run_spin "npm install" bash -c "cd \"${WEB_DIR}\" && npm install 2>&1"
     run_spin "npm build (1-3 min)" bash -c "cd \"${WEB_DIR}\" && npm run build 2>&1"
     if [[ -f "${WEB_DIST}/index.html" ]]; then
         ok "Web interface ready at ${WEB_DIST}"
@@ -413,7 +416,7 @@ DISPLAY_I2C_ADDRESS=0x3C
 DISPLAY_I2C_BUS=1
 ENVEOF
 
-chmod 640 "$CONF_DIR/wundio.env"
+chmod 660 "$CONF_DIR/wundio.env"
 chown root:"$WUNDIO_USER" "$CONF_DIR/wundio.env"
 ok "Config written to $CONF_DIR/wundio.env"
 

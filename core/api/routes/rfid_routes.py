@@ -68,3 +68,25 @@ async def mock_scan(uid: str):
     from services.rfid import get_rfid_service
     await get_rfid_service().write_uid_mock(uid)
     return {"scanned": uid}
+
+
+@router.get("/last-scan")
+async def last_scan():
+    """Return the most recently scanned UID and its timestamp.
+
+    The UI polls this endpoint while the 'assign tag' modal is open.
+    Returns uid='' if no scan has occurred yet or scan is older than 30s.
+    """
+    from database import get_setting
+    import time
+    uid = get_setting("rfid_last_scan_uid", "")
+    ts_str = get_setting("rfid_last_scan_ts", "0")
+    try:
+        ts = int(ts_str)
+    except ValueError:
+        ts = 0
+    # Only return scans from the last 30 seconds
+    age = int(time.time()) - ts
+    if age > 30:
+        uid = ""
+    return {"uid": uid, "age_seconds": age}
