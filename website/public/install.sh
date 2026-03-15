@@ -130,6 +130,51 @@ section "2/10 Installing system packages"
 info "Updating package lists..."
 run_spin "apt update" apt-get update
 
+# ── Build install manifest ────────────────────────────────────────────────────
+# Record which packages were already installed BEFORE we touch anything.
+# Uninstall will only remove packages that weren't present before Wundio.
+MANIFEST_DIR="/var/lib/wundio"
+mkdir -p "$MANIFEST_DIR"
+MANIFEST_FILE="$MANIFEST_DIR/installed-packages.txt"
+MANIFEST_META="$MANIFEST_DIR/install-manifest.txt"
+
+APT_PACKAGES=(
+    git
+    python3 python3-pip python3-venv python3-dev
+    build-essential libssl-dev libffi-dev
+    i2c-tools libi2c-dev python3-smbus
+    hostapd dnsmasq
+    libjpeg-dev zlib1g-dev libfreetype6-dev
+    curl wget
+    alsa-utils
+    python3-pillow
+    python3-rpi.gpio
+    python3-spidev
+    nodejs npm
+)
+
+info "Checking pre-existing packages..."
+> "$MANIFEST_FILE"
+for pkg in "${APT_PACKAGES[@]}"; do
+    if dpkg -l "$pkg" &>/dev/null 2>&1; then
+        echo "pre-existing:$pkg" >> "$MANIFEST_FILE"
+    else
+        echo "installed-by-wundio:$pkg" >> "$MANIFEST_FILE"
+    fi
+done
+
+# Write general install metadata
+cat > "$MANIFEST_META" << METAEOF
+install_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+install_user=${SUDO_USER:-root}
+pi_model=${HW_MODEL}
+pi_generation=${PI_GEN}
+git_url=${GIT_URL}
+git_branch=${GIT_BRANCH}
+METAEOF
+
+ok "Install manifest created at $MANIFEST_FILE"
+
 info "Installing dependencies (git, python3, i2c-tools, hostapd…)"
 # Use apt for as many packages as possible to avoid pip compilation later
 run_spin "apt packages" apt-get install -y \
