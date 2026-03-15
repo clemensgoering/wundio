@@ -1,191 +1,224 @@
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Wundio – Interactive Box for Kids",
-  description:
-    "Open-source, Raspberry Pi based interactive box for children. Music, games, AI – self-hosted and free.",
-  openGraph: {
-    title: "Wundio",
-    description: "Open-source interactive box for kids – built on Raspberry Pi",
-    url: "https://wundio.dev",
-  },
-};
+import { Nav } from "@/components/Nav";
+import { Footer } from "@/components/Footer";
+import { FEATURES, COMPAT, PHASES } from "@/lib/content";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[#0f0f0f] text-white font-sans">
+    <>
+      <Nav />
 
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-6 border-b border-white/10">
-        <span className="text-xl font-bold tracking-tight">Wundio</span>
-        <div className="flex gap-6 text-sm text-white/60">
-          <a href="/docs" className="hover:text-white transition">Docs</a>
-          <a href="/modules" className="hover:text-white transition">Modules</a>
-          <a
-            href="https://github.com/YOUR_ORG/wundio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-white transition"
-          >
-            GitHub
-          </a>
-        </div>
-      </nav>
+      <main className="pt-14">
 
-      {/* Hero */}
-      <section className="max-w-4xl mx-auto px-8 pt-28 pb-20 text-center">
-        <div className="inline-block bg-white/10 text-white/70 text-xs font-medium px-3 py-1 rounded-full mb-6 border border-white/20">
-          Open Source · Free · Self-Hosted
-        </div>
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-none">
-          Die interaktive Box<br />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-pink-400">
-            für deine Kinder.
-          </span>
-        </h1>
-        <p className="text-lg text-white/60 max-w-xl mx-auto mb-10">
-          Musik von Spotify, RFID-Figuren, Spiele und KI – alles auf einem Raspberry Pi.
-          Kostenlos, open-source, leicht nachzubauen.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <a
-            href="/docs/quickstart"
-            className="bg-violet-600 hover:bg-violet-500 text-white font-semibold px-6 py-3 rounded-xl transition"
-          >
-            Jetzt einrichten →
-          </a>
-          <a
-            href="https://github.com/YOUR_ORG/wundio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-white/10 hover:bg-white/20 text-white font-semibold px-6 py-3 rounded-xl border border-white/20 transition"
-          >
-            GitHub
-          </a>
-        </div>
-      </section>
+        {/* ── Hero ──────────────────────────────────────────────────── */}
+        <section className="relative overflow-hidden">
+          {/* Background glow + dot-grid */}
+          <div className="absolute inset-0 bg-radial-amber pointer-events-none" />
+          <div
+            className="absolute inset-0 bg-grid-dots pointer-events-none opacity-40"
+            style={{ backgroundSize: "32px 32px" }}
+          />
 
-      {/* Feature Grid */}
-      <section className="max-w-5xl mx-auto px-8 pb-24">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {FEATURES.map((f) => (
-            <div
-              key={f.title}
-              className="bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition"
-            >
-              <div className="text-3xl mb-3">{f.icon}</div>
-              <h3 className="font-semibold text-white mb-1">{f.title}</h3>
-              <p className="text-sm text-white/50">{f.description}</p>
+          <div className="relative max-w-5xl mx-auto px-6 pt-28 pb-24 text-center">
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 border border-amber/30 bg-amber/10
+                            text-amber text-xs font-display font-semibold px-3 py-1 rounded-full mb-8
+                            animate-fade-in animate-fill-both">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse-dim" />
+              Open Source · Raspberry Pi · Kostenlos
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* Install snippet */}
-      <section className="max-w-3xl mx-auto px-8 pb-24 text-center">
-        <h2 className="text-2xl font-bold mb-4">Ein Befehl genügt</h2>
-        <p className="text-white/50 text-sm mb-6">
-          Funktioniert auf Raspberry Pi 3, 4 und 5. Leistungsintensive Features werden automatisch deaktiviert.
-        </p>
-        <div className="bg-black/60 border border-white/10 rounded-xl p-5 font-mono text-sm text-left text-violet-300 select-all">
-          curl -fsSL https://wundio.dev/install.sh | sudo bash
-        </div>
-      </section>
+            {/* Headline */}
+            <h1 className="font-display font-extrabold text-5xl sm:text-6xl lg:text-7xl leading-[1.05]
+                           tracking-tight mb-6
+                           animate-fade-up animate-fill-both animate-delay-100">
+              Die Box,{" "}
+              <span className="text-amber">die mit</span>
+              <br />
+              <span className="text-amber">deinen Kindern</span>{" "}
+              wächst.
+            </h1>
 
-      {/* Pi compat table */}
-      <section className="max-w-3xl mx-auto px-8 pb-28">
-        <h2 className="text-2xl font-bold text-center mb-8">Hardware-Kompatibilität</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-white/10 text-white/40 text-left">
-                <th className="pb-3 pr-6">Feature</th>
-                <th className="pb-3 pr-6 text-center">Pi 3</th>
-                <th className="pb-3 pr-6 text-center">Pi 4</th>
-                <th className="pb-3 text-center">Pi 5</th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPAT.map((row) => (
-                <tr key={row.feature} className="border-b border-white/5">
-                  <td className="py-3 pr-6 text-white/70">{row.feature}</td>
-                  <td className="py-3 pr-6 text-center">{cell(row.pi3)}</td>
-                  <td className="py-3 pr-6 text-center">{cell(row.pi4)}</td>
-                  <td className="py-3 text-center">{cell(row.pi5)}</td>
-                </tr>
+            <p className="text-paper/50 text-lg max-w-xl mx-auto mb-10 leading-relaxed
+                          animate-fade-up animate-fill-both animate-delay-200">
+              Musik von Spotify, RFID-Figuren, Spiele und KI – alles auf einem
+              Raspberry Pi. Self-hosted, kostenlos, für immer open-source.
+            </p>
+
+            {/* CTAs */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center
+                            animate-fade-up animate-fill-both animate-delay-300">
+              <a
+                href="/docs/quickstart"
+                className="px-6 py-3 rounded-xl bg-amber text-ink font-display font-bold
+                           hover:bg-amber/90 active:scale-95 transition-all duration-200 text-sm"
+              >
+                Jetzt einrichten →
+              </a>
+              <a
+                href="https://github.com/YOUR_ORG/wundio"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 rounded-xl border border-border bg-surface text-paper/70
+                           font-display font-medium hover:border-paper/20 hover:text-paper
+                           active:scale-95 transition-all duration-200 text-sm"
+              >
+                GitHub ansehen
+              </a>
+            </div>
+
+            {/* Install snippet */}
+            <div className="mt-10 animate-fade-up animate-fill-both animate-delay-400">
+              <p className="text-xs text-muted mb-2">Ein Befehl – fertig</p>
+              <div className="inline-flex items-center gap-3 bg-black/50 border border-border
+                              rounded-xl px-5 py-3 font-mono text-sm text-teal">
+                <span className="text-muted select-none">$</span>
+                <span className="select-all">curl -fsSL https://wundio.vercel.app/install.sh | sudo bash</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Features ──────────────────────────────────────────────── */}
+        <section className="max-w-6xl mx-auto px-6 py-24">
+          <div className="text-center mb-14">
+            <p className="text-amber text-xs font-display font-semibold tracking-widest uppercase mb-3">Features</p>
+            <h2 className="font-display font-bold text-3xl sm:text-4xl">Mehr als eine Musikbox</h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {FEATURES.map((f, i) => (
+              <div
+                key={f.title}
+                className="group relative border border-border bg-surface rounded-2xl p-6
+                           hover:border-amber/25 hover:bg-amber/5 transition-all duration-300"
+              >
+                {/* Phase tag */}
+                <span className="absolute top-4 right-4 text-[10px] font-display font-semibold
+                                 text-muted border border-border rounded-md px-1.5 py-0.5">
+                  {f.tag}
+                </span>
+                <div className="text-3xl mb-4">{f.icon}</div>
+                <h3 className="font-display font-semibold text-paper mb-2">{f.title}</h3>
+                <p className="text-sm text-muted leading-relaxed">{f.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Roadmap ───────────────────────────────────────────────── */}
+        <section className="border-y border-border py-24">
+          <div className="max-w-3xl mx-auto px-6">
+            <div className="text-center mb-14">
+              <p className="text-amber text-xs font-display font-semibold tracking-widest uppercase mb-3">Roadmap</p>
+              <h2 className="font-display font-bold text-3xl sm:text-4xl">Wo wir stehen</h2>
+            </div>
+
+            <div className="space-y-0">
+              {PHASES.map((phase, idx) => (
+                <div key={phase.id} className="flex gap-5">
+                  {/* Timeline line */}
+                  <div className="flex flex-col items-center">
+                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-xs font-display font-bold
+                                    ${phase.done
+                                      ? "border-amber bg-amber text-ink"
+                                      : "border-border bg-surface text-muted"}`}>
+                      {phase.done ? "✓" : phase.id}
+                    </div>
+                    {idx < PHASES.length - 1 && (
+                      <div className={`w-px flex-1 min-h-8 mt-1 ${phase.done ? "bg-amber/30" : "bg-border"}`} />
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="pb-8 pt-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-display font-semibold text-sm text-paper">
+                        Phase {phase.id} – {phase.label}
+                      </span>
+                      {phase.done && (
+                        <span className="text-[10px] font-semibold text-amber border border-amber/30 bg-amber/10 rounded px-1.5 py-0.5">
+                          LIVE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted">{phase.desc}</p>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            </div>
+          </div>
+        </section>
 
-      {/* Footer */}
-      <footer className="border-t border-white/10 py-8 text-center text-white/30 text-sm">
-        Wundio – open-source, MIT license.
-        Made with ♥ for our kids.
-      </footer>
-    </main>
+        {/* ── Compatibility ─────────────────────────────────────────── */}
+        <section className="max-w-4xl mx-auto px-6 py-24">
+          <div className="text-center mb-14">
+            <p className="text-amber text-xs font-display font-semibold tracking-widest uppercase mb-3">Hardware</p>
+            <h2 className="font-display font-bold text-3xl sm:text-4xl">Raspberry Pi Kompatibilität</h2>
+            <p className="text-muted text-sm mt-3">
+              Leistungsintensive Features werden automatisch deaktiviert –{" "}
+              <span className="text-paper/70">keine manuelle Konfiguration nötig.</span>
+            </p>
+          </div>
+
+          <div className="border border-border rounded-2xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface">
+                  <th className="text-left py-3 px-5 text-muted font-display font-medium">Feature</th>
+                  {(["Pi 3", "Pi 4", "Pi 5"] as const).map(model => (
+                    <th key={model} className="text-center py-3 px-4 text-muted font-display font-medium w-20">
+                      {model}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {COMPAT.map((row, i) => (
+                  <tr key={row.feature}
+                      className={`border-b border-border/50 last:border-0 ${i % 2 === 0 ? "" : "bg-surface"}`}>
+                    <td className="py-3 px-5 text-paper/70">{row.feature}</td>
+                    <td className="py-3 px-4 text-center">{cell(row.pi3)}</td>
+                    <td className="py-3 px-4 text-center">{cell(row.pi4)}</td>
+                    <td className="py-3 px-4 text-center">{cell(row.pi5)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* ── CTA banner ────────────────────────────────────────────── */}
+        <section className="max-w-6xl mx-auto px-6 pb-24">
+          <div className="relative overflow-hidden rounded-3xl border border-amber/20 bg-amber/5 px-8 py-14 text-center">
+            <div className="absolute inset-0 bg-radial-amber opacity-60 pointer-events-none" />
+            <div className="relative">
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl mb-4">
+                Bereit zum Bauen?
+              </h2>
+              <p className="text-paper/50 mb-8 max-w-md mx-auto text-sm leading-relaxed">
+                Ein Raspberry Pi, ein RFID-Reader, ein OLED-Display – und los.
+                Die komplette Anleitung findest du in der Dokumentation.
+              </p>
+              <a
+                href="/docs/quickstart"
+                className="inline-block px-8 py-3.5 rounded-xl bg-amber text-ink font-display font-bold
+                           hover:bg-amber/90 active:scale-95 transition-all duration-200"
+              >
+                Zur Anleitung →
+              </a>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <Footer />
+    </>
   );
 }
 
-function cell(val: boolean | "partial") {
-  if (val === true) return <span className="text-green-400">✓</span>;
-  if (val === "partial") return <span className="text-yellow-400">~</span>;
-  return <span className="text-white/20">–</span>;
+function cell(val: boolean) {
+  return val
+    ? <span className="text-teal font-semibold">✓</span>
+    : <span className="text-muted/40">–</span>;
 }
-
-const FEATURES = [
-  {
-    icon: "🎵",
-    title: "Spotify via RFID",
-    description:
-      "Figur auf den Reader legen → Musik startet sofort. Keine App nötig.",
-  },
-  {
-    icon: "👤",
-    title: "Mehrere Kinder",
-    description:
-      "Jedes Kind hat ein eigenes Profil mit personalisierten Playlists und Lautstärke.",
-  },
-  {
-    icon: "🌐",
-    title: "Web-Interface",
-    description:
-      "Einrichtung und Verwaltung bequem über den Browser im Heimnetz.",
-  },
-  {
-    icon: "🤖",
-    title: "KI-Interaktion",
-    description:
-      "Auf leistungsstarken Modellen: Wundio hört zu, antwortet und lernt. (Pi 5, opt.)",
-  },
-  {
-    icon: "🎮",
-    title: "Spiele & Lernen",
-    description:
-      "Modulares System – Spiele und Lerneinheiten werden einfach nachinstalliert.",
-  },
-  {
-    icon: "🔋",
-    title: "Batteriebetrieb",
-    description:
-      "Kein fixes Setup. Portabel mit Powerbank – ideal für unterwegs.",
-  },
-];
-
-const COMPAT: {
-  feature: string;
-  pi3: boolean | "partial";
-  pi4: boolean | "partial";
-  pi5: boolean | "partial";
-}[] = [
-  { feature: "Spotify (librespot)",     pi3: true,      pi4: true,  pi5: true },
-  { feature: "RFID RC522",              pi3: true,      pi4: true,  pi5: true },
-  { feature: "OLED Display (I2C)",      pi3: true,      pi4: true,  pi5: true },
-  { feature: "Buttons (GPIO)",          pi3: true,      pi4: true,  pi5: true },
-  { feature: "Web-Interface",           pi3: true,      pi4: true,  pi5: true },
-  { feature: "Multi-User Profile",      pi3: true,      pi4: true,  pi5: true },
-  { feature: "Spiele (erweitert)",      pi3: false,     pi4: true,  pi5: true },
-  { feature: "Cloud KI (opt.)",         pi3: false,     pi4: true,  pi5: true },
-  { feature: "Lokales LLM (Ollama)",    pi3: false,     pi4: false, pi5: true },
-];

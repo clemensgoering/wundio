@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ink:   #0D0B09;
+    --paper: #F5F0E8;
+    --amber: #F59C1A;
+    --teal:  #0EA195;
+  }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; }
+  ::selection { background: rgba(245,156,26,0.2); color: #F5F0E8; }
+  ::-webkit-scrollbar       { width: 4px; }
+  ::-webkit-scrollbar-track { background: #0D0B09; }
+  ::-webkit-scrollbar-thumb { background: rgba(245,240,232,0.12); border-radius: 2px; }
+}

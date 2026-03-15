@@ -191,6 +191,50 @@ fi
 
 ok "Python environment ready"
 
+# ── 6b. librespot (Spotify) ───────────────────────────────────────────────────
+if [[ "$FEAT_SPOTIFY" == "true" ]]; then
+    section "Installing librespot (Spotify Connect)"
+    LIBRESPOT_BIN="${INSTALL_DIR}/bin/librespot"
+    mkdir -p "${INSTALL_DIR}/bin"
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        aarch64|arm64) LS_ARCH="aarch64-unknown-linux-gnu" ;;
+        armv7l)        LS_ARCH="armv7-unknown-linux-gnueabihf" ;;
+        armv6l)        LS_ARCH="arm-unknown-linux-gnueabihf" ;;
+        x86_64)        LS_ARCH="x86_64-unknown-linux-gnu" ;;
+        *)             LS_ARCH="" ;;
+    esac
+    LS_DONE=false
+    # 1. apt (Bookworm)
+    if apt-cache show librespot &>/dev/null 2>&1; then
+        apt-get install -y -qq librespot
+        ln -sf "$(which librespot)" "$LIBRESPOT_BIN" 2>/dev/null || true
+        LS_DONE=true; ok "librespot via apt"
+    # 2. prebuilt binary
+    elif [[ -n "$LS_ARCH" ]]; then
+        LS_VER="0.5.0"
+        LS_URL="https://github.com/librespot-org/librespot/releases/download/v${LS_VER}/librespot-${LS_ARCH}.tar.gz"
+        info "Downloading librespot ${LS_VER} for ${LS_ARCH}..."
+        if curl -fsSL "$LS_URL" -o /tmp/librespot.tar.gz 2>/dev/null; then
+            tar -xzf /tmp/librespot.tar.gz -C "${INSTALL_DIR}/bin/" librespot
+            chmod +x "$LIBRESPOT_BIN"; rm /tmp/librespot.tar.gz
+            LS_DONE=true; ok "librespot binary downloaded"
+        fi
+    fi
+    # 3. build from source (fallback)
+    if [[ "$LS_DONE" == "false" ]]; then
+        warn "Building librespot from source (~10min on Pi 3)..."
+        command -v cargo &>/dev/null || curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path -q
+        export PATH="$HOME/.cargo/bin:$PATH"
+        apt-get install -y -qq pkg-config libssl-dev libasound2-dev
+        cargo install librespot --root "${INSTALL_DIR}" -q
+    fi
+    chmod +x "${INSTALL_DIR}/scripts/librespot-event.sh" 2>/dev/null || true
+    apt-get install -y -qq alsa-utils
+    ok "Spotify (librespot) ready"
+fi
+
+
 # ── 7. Write config env ───────────────────────────────────────────────────────
 section "Writing configuration"
 
