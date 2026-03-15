@@ -1,27 +1,5 @@
 import type { Metadata } from "next";
-import { Nunito, DM_Sans, DM_Mono } from "next/font/google";
 import "./globals.css";
-
-const nunito = Nunito({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
-  variable: "--font-nunito",
-  display: "swap",
-});
-
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  weight: ["300", "400", "500"],
-  variable: "--font-dm-sans",
-  display: "swap",
-});
-
-const dmMono = DM_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-dm-mono",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: {
@@ -39,17 +17,20 @@ export const metadata: Metadata = {
     siteName:    "Wundio",
     type:        "website",
   },
-  twitter: {
-    card: "summary_large_image",
-    title: "Wundio",
-    description: "Open-source interaktive Kinderbox auf Raspberry Pi",
-  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="de" className={`${nunito.variable} ${dmSans.variable} ${dmMono.variable}`}>
-      <body className="bg-cream text-ink font-body">
+    <html lang="de">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="bg-cream text-ink font-body antialiased">
         {children}
       </body>
     </html>
