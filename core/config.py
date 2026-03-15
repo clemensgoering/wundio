@@ -5,7 +5,6 @@ Hardware-dependent settings are layered on top via the HardwareProfile.
 """
 
 from functools import lru_cache
-from typing import Annotated
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 

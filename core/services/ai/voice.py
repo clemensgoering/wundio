@@ -6,7 +6,6 @@ Full pipeline:
 Designed to be modular: each step can be replaced or skipped independently.
 """
 
-import asyncio
 import logging
 from typing import Optional
 

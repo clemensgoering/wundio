@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from config import get_settings
-from database import init_db, get_setting, set_setting, log_event
+from database import init_db, get_setting, log_event
 from services.hardware import get_profile
 from services.display import get_display
 from services.rfid import get_rfid_service
@@ -131,7 +131,7 @@ async def _on_rfid_scan(uid: str) -> None:
                 display.show_user_login(user.display_name)
 
     elif action["type"] == "playlist":
-        display.show_idle(f"▶ Playlist")
+        display.show_idle("▶ Playlist")
         # Spotify Web API play call will be added in Phase 2
 
     elif action["type"] == "action":
@@ -148,7 +148,6 @@ async def _on_rfid_scan(uid: str) -> None:
 
 async def _on_button_press(name: str) -> None:
     spotify = get_spotify_service()
-    display = get_display()
     state   = spotify.get_state()
 
     log_event("buttons", f"Button: {name}")
@@ -201,7 +200,6 @@ if __name__ == "__main__":
 
 async def _on_voice_action(intent) -> None:
     """Dispatch voice intents to hardware services."""
-    from services.ai.intent import Intent
     spotify = get_spotify_service()
     state   = spotify.get_state()
     log_event("voice", f"Action: {intent.type} {intent.params}")

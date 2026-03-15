@@ -30,7 +30,7 @@ class UserUpdate(BaseModel):
 @router.get("/", response_model=List[User])
 async def list_users():
     with Session(get_engine()) as session:
-        return session.exec(select(User).where(User.is_active == True)).all()
+        return session.exec(select(User).where(User.is_active)).all()
 
 
 @router.post("/", response_model=User)

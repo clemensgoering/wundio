@@ -82,12 +82,11 @@ class WhisperService:
 
     async def record_and_transcribe(self, duration: float = 4.0) -> Optional[str]:
         """Record {duration}s of audio and transcribe. Requires arecord."""
-        import subprocess
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_path = f.name
 
         cmd = [
-            "arecord", f"--device=default", "--format=S16_LE",
+            "arecord", "--device=default", "--format=S16_LE",
             "--rate=16000", "--channels=1",
             f"--duration={int(duration)}", tmp_path,
         ]

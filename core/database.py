@@ -5,16 +5,17 @@ Schema for Phase 0: Users, RFID Tags, Settings, System Log
 
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, timezone
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy import event
 
+
 logger = logging.getLogger(__name__)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -25,11 +26,10 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     display_name: str
-    avatar_emoji: str = Field(default="🎵")  # simple avatar for OLED
+    avatar_emoji: str = Field(default="")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=_now)
 
-    # Spotify
     spotify_playlist_id: Optional[str] = None
     spotify_playlist_name: Optional[str] = None
     volume: int = Field(default=70, ge=0, le=100)
@@ -39,14 +39,11 @@ class RfidTag(SQLModel, table=True):
     __tablename__ = "rfid_tags"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    uid: str = Field(unique=True, index=True)    # hex string from RC522
+    uid: str = Field(unique=True, index=True)
     label: str = Field(default="")
-    tag_type: str = Field(default="user")        # "user" | "playlist" | "action"
-    # For type="user": ref to users.id
+    tag_type: str = Field(default="user")
     user_id: Optional[int] = Field(default=None, foreign_key="users.id")
-    # For type="playlist": Spotify playlist URI
     spotify_uri: Optional[str] = None
-    # For type="action": e.g. "vol_up", "stop", "sleep_timer"
     action: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
 
@@ -60,12 +57,11 @@ class SystemSetting(SQLModel, table=True):
 
 
 class SystemEvent(SQLModel, table=True):
-    """Lightweight event log – ring buffer pattern (keep last 500)."""
     __tablename__ = "system_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    level: str = Field(default="INFO")          # INFO | WARN | ERROR
-    source: str = Field(default="system")       # rfid | spotify | buttons | ai ...
+    level: str = Field(default="INFO")
+    source: str = Field(default="system")
     message: str
     created_at: datetime = Field(default_factory=_now)
 
@@ -94,7 +90,6 @@ def init_db(db_path: str = "/var/lib/wundio/wundio.db") -> None:
         connect_args={"check_same_thread": False},
     )
 
-    # Enable WAL mode for better concurrent read/write on Pi SD cards
     @event.listens_for(_engine, "connect")
     def set_sqlite_pragma(dbapi_conn, _):
         cursor = dbapi_conn.cursor()
@@ -109,18 +104,16 @@ def init_db(db_path: str = "/var/lib/wundio/wundio.db") -> None:
 
 
 def _seed_defaults() -> None:
-    """Insert default system settings if not present."""
     defaults = {
-        "setup_complete": "false",
-        "wifi_configured": "false",
-        "active_user_id": "",
-        "current_volume": "70",
-        "hotspot_active": "false",
+        "setup_complete":   "false",
+        "wifi_configured":  "false",
+        "active_user_id":   "",
+        "current_volume":   "70",
+        "hotspot_active":   "false",
     }
     with Session(get_engine()) as session:
         for key, value in defaults.items():
-            existing = session.get(SystemSetting, key)
-            if not existing:
+            if not session.get(SystemSetting, key):
                 session.add(SystemSetting(key=key, value=value))
         session.commit()
 
@@ -148,7 +141,6 @@ def log_event(source: str, message: str, level: str = "INFO") -> None:
     with Session(get_engine()) as session:
         session.add(SystemEvent(level=level, source=source, message=message))
         session.commit()
-        # Ring buffer: keep last 500 events
         count = session.exec(select(SystemEvent)).all()
         if len(count) > 500:
             oldest = session.exec(

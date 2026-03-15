@@ -5,7 +5,6 @@ Falls back to console logging when hardware is absent.
 """
 
 import logging
-import asyncio
 from typing import Optional
 from enum import Enum
 

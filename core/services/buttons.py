@@ -7,7 +7,7 @@ Falls back gracefully when RPi.GPIO is unavailable (dev machine).
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Awaitable, Dict, Optional
 
 logger = logging.getLogger(__name__)

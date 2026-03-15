@@ -4,11 +4,10 @@ Controls librespot / reports current state.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 from services.spotify import get_spotify_service
 from services.buttons import get_button_service
-from database import log_event, set_setting, get_setting
+from database import log_event, set_setting
 
 router = APIRouter(tags=["playback"])
 

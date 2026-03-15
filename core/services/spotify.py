@@ -10,7 +10,6 @@ librespot runs as a separate process; we communicate via:
 import asyncio
 import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional
