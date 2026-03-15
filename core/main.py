@@ -1,5 +1,5 @@
 """
-Wundio – FastAPI Core Application
+Wundio – FastAPI Core Application - Update
 """
 
 import logging
