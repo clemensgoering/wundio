@@ -5,10 +5,11 @@ const DOC_SECTIONS = [
   {
     title: "Einstieg",
     links: [
-      { href: "/docs",              label: "Übersicht"       },
-      { href: "/docs/quickstart",   label: "Quickstart"      },
-      { href: "/docs/hardware",     label: "Hardware-Liste"  },
-      { href: "/docs/faq",          label: "FAQ"             },
+      { href: "/docs",              label: "Übersicht"         },
+      { href: "/docs/aufbau",       label: "Hardware Aufbau"   },
+      { href: "/docs/quickstart",   label: "Installation"      },
+      { href: "/docs/hardware",     label: "Pinout Referenz"   },
+      { href: "/docs/faq",          label: "FAQ"               },
     ],
   },
   {
