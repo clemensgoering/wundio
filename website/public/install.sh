@@ -220,55 +220,69 @@ run_spin "pip hardware" "$VENV_DIR/bin/pip" install \
     "luma.oled"
 ok "Python environment ready"
 
-# ── 6b. librespot (Spotify) ───────────────────────────────────────────────────
+# ── 6b. librespot via Raspotify ──────────────────────────────────────────────
+# Raspotify is the maintained Debian package wrapping librespot.
+# Supports Pi 3 (armv7), Pi 4, Pi 5 on Bookworm 64-bit and 32-bit.
+# https://github.com/dtcooper/raspotify
 if [[ "$FEAT_SPOTIFY" == "true" ]]; then
     section "6b/9  Installing librespot (Spotify Connect)"
-    LIBRESPOT_BIN="${INSTALL_DIR}/bin/librespot"
     mkdir -p "${INSTALL_DIR}/bin"
-    ARCH=$(uname -m)
-    case "$ARCH" in
-        aarch64|arm64) LS_ARCH="aarch64-unknown-linux-gnu"    ;;
-        armv7l)        LS_ARCH="armv7-unknown-linux-gnueabihf" ;;
-        armv6l)        LS_ARCH="arm-unknown-linux-gnueabihf"   ;;
-        x86_64)        LS_ARCH="x86_64-unknown-linux-gnu"      ;;
-        *)             LS_ARCH="" ;;
-    esac
     LS_DONE=false
 
-    # 1. apt (Bookworm has it)
-    if apt-cache show librespot &>/dev/null 2>&1; then
-        run_spin "librespot via apt" apt-get install -y librespot
-        ln -sf "$(which librespot)" "$LIBRESPOT_BIN" 2>/dev/null || true
-        LS_DONE=true
-
-    # 2. prebuilt binary from GitHub releases
-    elif [[ -n "$LS_ARCH" ]]; then
-        LS_VER="0.5.0"
-        LS_URL="https://github.com/librespot-org/librespot/releases/download/v${LS_VER}/librespot-${LS_ARCH}.tar.gz"
-        info "Downloading librespot ${LS_VER} for ${LS_ARCH}..."
-        if curl -fsSL --progress-bar "$LS_URL" -o /tmp/librespot.tar.gz; then
-            tar -xzf /tmp/librespot.tar.gz -C "${INSTALL_DIR}/bin/" librespot 2>/dev/null || \
-            tar -xzf /tmp/librespot.tar.gz -C "${INSTALL_DIR}/bin/"
-            chmod +x "${INSTALL_DIR}/bin/librespot" 2>/dev/null || true
-            rm -f /tmp/librespot.tar.gz
-            LS_DONE=true
-            ok "librespot binary ready"
+    # 1. Raspotify – preferred: works on all Pi models, Bookworm-native .deb
+    if command -v curl &>/dev/null; then
+        info "Installing Raspotify (librespot Debian package)..."
+        # Raspotify installs its own apt repo and the librespot binary
+        if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh >> "$LOG_FILE" 2>&1; then
+            # Disable the Raspotify systemd service – Wundio manages librespot directly
+            systemctl disable raspotify 2>/dev/null || true
+            systemctl stop    raspotify 2>/dev/null || true
+            # Link the installed binary for Wundio
+            RASPOTIFY_BIN=$(which librespot 2>/dev/null || echo "")
+            if [[ -n "$RASPOTIFY_BIN" ]]; then
+                ln -sf "$RASPOTIFY_BIN" "${INSTALL_DIR}/bin/librespot"
+                LS_DONE=true
+                ok "librespot ready via Raspotify"
+            fi
         else
-            warn "Could not download librespot binary"
+            warn "Raspotify install script failed"
         fi
     fi
 
-    # 3. build from source (last resort – slow, warn user)
-    if [[ "$LS_DONE" == "false" ]]; then
-        warn "No prebuilt binary available – building from source."
-        warn "This can take 20–40 minutes on Pi 3. Please be patient."
-        if ! command -v cargo &>/dev/null; then
-            info "Installing Rust toolchain..."
-            curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
-            export PATH="$HOME/.cargo/bin:$PATH"
+    # 2. apt (Debian repos – may be available on some systems)
+    if [[ "$LS_DONE" == "false" ]] && apt-cache show librespot &>/dev/null 2>&1; then
+        info "Trying apt librespot..."
+        if apt-get install -y librespot >> "$LOG_FILE" 2>&1; then
+            ln -sf "$(which librespot)" "${INSTALL_DIR}/bin/librespot" 2>/dev/null || true
+            LS_DONE=true
+            ok "librespot installed via apt"
         fi
-        run_spin "apt build deps" apt-get install -y pkg-config libssl-dev libasound2-dev
-        run_spin "cargo build librespot" cargo install librespot --root "${INSTALL_DIR}"
+    fi
+
+    # 3. Build from source (last resort – slow, show live output so user sees progress)
+    if [[ "$LS_DONE" == "false" ]]; then
+        warn "No package available – building librespot from Rust source."
+        warn "On Pi 3 this takes 30–60 minutes. Output will be shown live."
+        echo ""
+        apt-get install -y pkg-config libssl-dev libasound2-dev >> "$LOG_FILE" 2>&1
+        if ! command -v cargo &>/dev/null; then
+            info "Installing Rust toolchain (this may take a few minutes)..."
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
+        fi
+        # Source cargo env – critical step that was missing before
+        # shellcheck disable=SC1090
+        source "$HOME/.cargo/env" 2>/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
+        info "Building librespot – live output below:"
+        echo "──────────────────────────────────────────"
+        # Run cargo visibly (not via run_spin) so user sees compiler progress
+        cargo install librespot --root "${INSTALL_DIR}" 2>&1 | tee -a "$LOG_FILE"
+        echo "──────────────────────────────────────────"
+        if [[ -f "${INSTALL_DIR}/bin/librespot" ]]; then
+            LS_DONE=true
+            ok "librespot built from source"
+        else
+            error "librespot build failed – see $LOG_FILE"
+        fi
     fi
 
     chmod +x "${INSTALL_DIR}/scripts/librespot-event.sh" 2>/dev/null || true
