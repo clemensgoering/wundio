@@ -4,7 +4,6 @@ import { useState } from "react";
 import { DocHeader, InfoBox } from "@/components/DocComponents";
 
 // ── Pi model data ──────────────────────────────────────────────────────────
-
 const PI_MODELS = [
   {
     id: "pi3",
