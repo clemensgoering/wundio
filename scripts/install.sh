@@ -241,6 +241,9 @@ ok "Source ready at $INSTALL_DIR"
 
 # ── 6. Python venv ────────────────────────────────────────────────────────────
 section "6/10 Setting up Python environment"
+echo -e "  ${YELLOW}⏱  Pi 3: ca. 5–10 Minuten · Pi 4/5: ca. 2–4 Minuten${NC}"
+echo -e "  ${YELLOW}   Bitte warten – Python-Pakete werden kompiliert...${NC}"
+echo ""
 
 info "Creating virtual environment..."
 python3 -m venv --system-site-packages "$VENV_DIR"
@@ -271,6 +274,9 @@ ok "Python environment ready"
 # https://github.com/dtcooper/raspotify
 if [[ "$FEAT_SPOTIFY" == "true" ]]; then
     section "6b/10 Installing librespot (Spotify Connect)"
+echo -e "  ${YELLOW}⏱  Normalerweise < 1 Minute (Paket-Download)${NC}"
+echo -e "  ${YELLOW}   Nur wenn kein Paket verfügbar: Rust-Build = 30–60 Min.${NC}"
+echo ""
     mkdir -p "${INSTALL_DIR}/bin"
     LS_DONE=false
 
@@ -337,6 +343,9 @@ fi
 # ── 7. Write config env ───────────────────────────────────────────────────────
 # ── 7/10 Build Web Interface ─────────────────────────────────────────────────
 section "7/10 Building Web Interface"
+echo -e "  ${YELLOW}⏱  Pi 3: ca. 5–15 Minuten · Pi 4/5: ca. 2–5 Minuten${NC}"
+echo -e "  ${YELLOW}   Node.js kompiliert die React-App – bitte nicht unterbrechen.${NC}"
+echo ""
 
 WEB_DIR="${INSTALL_DIR}/web"
 WEB_DIST="${INSTALL_DIR}/core/static/web"
@@ -424,15 +433,17 @@ run_spin "hotspot setup" bash "$INSTALL_DIR/scripts/setup-hotspot.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
-# Detect if already on WiFi (hotspot script may have set this)
+# Detect if already on WiFi
 WIFI_ALREADY_CONFIGURED=false
 if grep -q "WIFI_CONFIGURED=true" "$CONF_DIR/wundio.env" 2>/dev/null; then
     WIFI_ALREADY_CONFIGURED=true
 fi
-# Double-check live connection
 if command -v iwgetid &>/dev/null && iwgetid wlan0 --raw 2>/dev/null | grep -q .; then
     WIFI_ALREADY_CONFIGURED=true
 fi
+
+# Determine local IP for display
+LOCAL_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "")
 
 echo ""
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -441,29 +452,46 @@ echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [[ "$WIFI_ALREADY_CONFIGURED" == "true" ]]; then
-    LOCAL_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "")
-    echo -e "  ${GREEN}✓ Pi is already connected to your home WiFi${NC}"
+    echo -e "  ${GREEN}✓ Pi ist mit deinem Heimnetz verbunden${NC}"
     echo ""
-    echo -e "  After reboot, open Wundio in your browser:"
-    if [[ -n "${LOCAL_IP:-}" ]]; then
-        echo -e "    ${YELLOW}http://${LOCAL_IP}:8000${NC}"
-    fi
+    echo -e "  Nach dem Neustart Wundio öffnen:"
+    [[ -n "${LOCAL_IP:-}" ]] && echo -e "    ${YELLOW}http://${LOCAL_IP}:8000${NC}"
     echo -e "    ${YELLOW}http://wundio.local:8000${NC}"
 else
-    echo -e "  Next steps:"
-    echo -e "  1. After reboot, connect to WiFi:  ${YELLOW}Wundio-Setup${NC}"
-    echo -e "     Password:                        ${YELLOW}wundio123${NC}"
-    echo -e "  2. Open in browser:                 ${YELLOW}http://192.168.50.1:8000${NC}"
-    echo -e "  3. Enter your home WiFi → Wundio reconnects automatically"
+    echo -e "  Nach dem Neustart:"
+    echo -e "  1. Mit WLAN verbinden:  ${YELLOW}Wundio-Setup${NC}  (Passwort: ${YELLOW}wundio123${NC})"
+    echo -e "  2. Browser öffnen:      ${YELLOW}http://192.168.50.1:8000${NC}"
+    echo -e "  3. Heimnetz eintragen → Wundio verbindet sich automatisch"
 fi
 
 echo ""
-echo -e "  Full log: ${LOG_FILE}"
+echo -e "  Log: ${LOG_FILE}"
 echo ""
 
-if command -v raspi-config &>/dev/null; then
-    read -rp "  Reboot now to activate SPI/I2C? [Y/n] " ans
-    [[ "${ans:-Y}" =~ ^[Yy]$ ]] && reboot
-else
-    warn "Please reboot manually, then: sudo systemctl start wundio-core"
-fi
+# ── Auto-reboot ───────────────────────────────────────────────────────────────
+# SPI and I2C are only active after a reboot.
+# wundio-core is enabled via systemd and will start automatically on every boot.
+# We reboot automatically after a short countdown (user can cancel with Ctrl+C).
+
+echo -e "  ${CYAN}Wundio startet automatisch bei jedem Hochfahren (systemd).${NC}"
+echo ""
+
+# Ensure wundio-core is enabled for autostart on every boot
+systemctl enable wundio-core wundio-rfid 2>/dev/null || true
+ok "Autostart aktiviert (wundio-core, wundio-rfid)"
+
+echo ""
+echo -e "  ${YELLOW}${BOLD}Neustart in 10 Sekunden...${NC}  (Abbrechen: Strg+C)"
+echo ""
+
+for i in 10 9 8 7 6 5 4 3 2 1; do
+    printf "
+  %2d Sekunden... " "$i"
+    sleep 1
+done
+printf "
+  Starte neu...        
+"
+echo ""
+
+reboot
