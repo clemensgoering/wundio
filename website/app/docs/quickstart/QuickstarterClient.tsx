@@ -134,7 +134,7 @@ function Screenshot({ label, children }: { label: string; children: React.ReactN
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export function QuickstartClient() {
+export function QuickstarterClient() {
   const [selectedPi, setSelectedPi] = useState<PiId | null>(null);
   const pi = PI_MODELS.find(m => m.id === selectedPi) ?? null;
 

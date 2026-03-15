@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { QuickstartClient } from "./Quickstartclient";
+import { QuickstarterClient } from "./QuickstarterClient";
 
 export const metadata: Metadata = {
   title: "Quickstart – Wundio einrichten",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function QuickstartPage() {
-  return <QuickstartClient />;
+  return <QuickstarterClient />;
 }
