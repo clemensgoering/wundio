@@ -39,19 +39,15 @@ SPOTIFY_SCOPES = " ".join([
 ])
 
 
-def _get_redirect_uri(request) -> str:
-    """
-    Build callback URI from the incoming request host.
+RELAY_REDIRECT_URI = "https://wundio.dev/spotify-callback"
+# wundio.dev/spotify-callback receives the code from Spotify and relays
+# it back to the local Pi via the 'state' parameter (which contains the Pi IP).
 
-    Spotify allows http:// only for localhost and IP addresses.
-    Using the request host ensures the URI matches what the user registered
-    in the Spotify Developer Dashboard.
 
-    Register in Spotify Dashboard: http://<Pi-IP>:8000/api/spotify/callback
-    Example: http://192.168.1.50:8000/api/spotify/callback
-    """
+def _get_local_origin(request) -> str:
+    """Return the local Pi origin, e.g. http://192.168.1.50:8000"""
     host = request.headers.get("host", f"localhost:{request.url.port or 8000}")
-    return f"http://{host}/api/spotify/callback"
+    return f"http://{host}"
 
 
 def _write_env_key(key: str, value: str) -> None:
@@ -92,12 +88,17 @@ async def spotify_auth_start(request: Request):
             </body></html>
         """, status_code=400)
 
-    redirect_uri = _get_redirect_uri(request)
+    import base64 as _b64
+    local_origin = _get_local_origin(request)
+    # Encode Pi origin in state so wundio.dev relay knows where to send the code
+    state = _b64.urlsafe_b64encode(local_origin.encode()).decode()
+
     params = urllib.parse.urlencode({
         "client_id":     cfg.spotify_client_id,
         "response_type": "code",
-        "redirect_uri":  redirect_uri,
+        "redirect_uri":  RELAY_REDIRECT_URI,
         "scope":         SPOTIFY_SCOPES,
+        "state":         state,
         "show_dialog":   "true",
     })
     auth_url = f"https://accounts.spotify.com/authorize?{params}"
@@ -142,7 +143,7 @@ async def spotify_callback(request: Request, code: str = "", error: str = ""):
             data=urllib.parse.urlencode({
                 "grant_type":   "authorization_code",
                 "code":         code,
-                "redirect_uri": _get_redirect_uri(request),
+                "redirect_uri": RELAY_REDIRECT_URI,
             }).encode(),
             headers={
                 "Authorization": f"Basic {creds}",

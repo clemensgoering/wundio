@@ -44,10 +44,9 @@ function SpotifySetupGuide({ entries, saved }: { entries: EnvEntry[]; saved: Rec
   const hasRefreshToken = entries.find(e => e.key === "SPOTIFY_REFRESH_TOKEN")?.has_value;
 
   const credentialsReady = !!(hasClientId && hasSecret);
-  // Use the actual IP from the browser URL - Spotify requires http:// + IP (not mDNS hostnames)
-  const port        = window.location.port || "8000";
-  const redirectUri = `http://${window.location.hostname}:${port}/api/spotify/callback`;
-  const isIpAddress = /^\d+\.\d+\.\d+\.\d+$/.test(window.location.hostname);
+  // Redirect URI is always wundio.dev – it relays the code back to the Pi.
+  // This avoids SSL issues with local HTTP on port 8000.
+  const redirectUri = "https://wundio.dev/spotify-callback";
 
   return (
     <div className="mb-4 space-y-4">
@@ -77,13 +76,7 @@ function SpotifySetupGuide({ entries, saved }: { entries: EnvEntry[]; saved: Rec
                 </a>
                 {" "}&rarr; "Create app"
               </p>
-              {!isIpAddress && (
-                <div className="bg-coral/10 border border-coral/20 rounded-xl p-3 text-xs text-coral mb-2">
-                  Du greifst über <strong>{window.location.hostname}</strong> zu.
-                  Spotify erlaubt kein mDNS – öffne Wundio über die IP-Adresse deines Pi
-                  (z.B. <strong>http://192.168.1.50:8000</strong>) und wiederhole dann diesen Schritt.
-                </div>
-              )}
+
               <div className="bg-surface border border-border rounded-xl p-3 text-xs text-muted space-y-1.5">
                 <p><span className="text-paper font-semibold">App Name:</span> Wundio (beliebig)</p>
                 <p><span className="text-paper font-semibold">Description:</span> Home music box (beliebig)</p>
@@ -93,8 +86,8 @@ function SpotifySetupGuide({ entries, saved }: { entries: EnvEntry[]; saved: Rec
                   </code>
                 </p>
                 <p className="text-muted/60 text-[10px]">
-                  Diese exakte URI im Spotify Developer Dashboard eintragen (Settings deiner App).
-                  Spotify erlaubt http:// nur für IP-Adressen, nicht für wundio.local.
+                  Diese URI im Spotify Developer Dashboard unter Settings deiner App eintragen.
+                  wundio.dev leitet den Code sicher zurück zum Pi – kein HTTPS auf dem Pi nötig.
                 </p>
               </div>
             </div>
