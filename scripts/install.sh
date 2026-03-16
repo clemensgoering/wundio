@@ -142,7 +142,7 @@ SETUP_DISPLAY_HEIGHT=64
 SETUP_INSTALL_LUMA_LCD=false
 
 while true; do
-    read -r -p "  Deine Wahl [0-4]: " DISPLAY_CHOICE
+    read -r -p "  Deine Wahl [0-4]: " DISPLAY_CHOICE </dev/tty
     case "$DISPLAY_CHOICE" in
         0)
             SETUP_DISPLAY_TYPE="none"
@@ -189,7 +189,7 @@ SETUP_RFID_TYPE="rc522"
 SETUP_INSTALL_PN532=false
 
 while true; do
-    read -r -p "  Deine Wahl [1-2]: " RFID_CHOICE
+    read -r -p "  Deine Wahl [1-2]: " RFID_CHOICE </dev/tty
     case "$RFID_CHOICE" in
         1)
             SETUP_RFID_TYPE="rc522"
@@ -219,7 +219,7 @@ echo ""
 SETUP_AUDIO_TYPE="usb"
 
 while true; do
-    read -r -p "  Deine Wahl [1-3]: " AUDIO_CHOICE
+    read -r -p "  Deine Wahl [1-3]: " AUDIO_CHOICE </dev/tty
     case "$AUDIO_CHOICE" in
         1)
             SETUP_AUDIO_TYPE="usb"
