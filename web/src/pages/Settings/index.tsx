@@ -33,6 +33,125 @@ const fetcher = async (url: string) => {
   return r.json();
 };
 
+function SpotifySetupGuide({ entries, saved }: { entries: EnvEntry[]; saved: Record<string, boolean> }) {
+  const hasClientId     = entries.find(e => e.key === "SPOTIFY_CLIENT_ID")?.has_value;
+  const hasSecret       = entries.find(e => e.key === "SPOTIFY_CLIENT_SECRET")?.has_value;
+  const hasRefreshToken = entries.find(e => e.key === "SPOTIFY_REFRESH_TOKEN")?.has_value;
+  // Check if credentials were just saved in this session
+  const justSavedId     = saved["SPOTIFY_CLIENT_ID"];
+  const justSavedSecret = saved["SPOTIFY_CLIENT_SECRET"];
+
+  const credentialsReady = (hasClientId || justSavedId) && (hasSecret || justSavedSecret);
+  const redirectUri      = `${window.location.protocol}//${window.location.hostname}:${window.location.port || 8000}/api/spotify/callback`;
+
+  return (
+    <div className="mb-4 space-y-4">
+      {/* Step guide */}
+      <div className="bg-ink/30 border border-border rounded-2xl p-5">
+        <p className="text-xs font-display font-bold text-paper mb-4 uppercase tracking-wider">
+          Schritt-fuer-Schritt Einrichtung
+        </p>
+        <div className="space-y-4">
+
+          {/* Step 1 */}
+          <div className="flex gap-3">
+            <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center
+                            text-[10px] font-bold mt-0.5
+                            ${hasClientId && hasSecret ? "bg-teal text-ink" : "bg-honey text-white"}`}>
+              1
+            </div>
+            <div>
+              <p className="text-sm font-display font-semibold text-paper mb-1">
+                Spotify Developer App anlegen
+              </p>
+              <p className="text-xs text-muted mb-2">
+                Gehe zu{" "}
+                <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer"
+                   className="text-teal underline underline-offset-2">
+                  developer.spotify.com/dashboard
+                </a>
+                {" "}&rarr; "Create app"
+              </p>
+              <div className="bg-surface border border-border rounded-xl p-3 text-xs text-muted space-y-1.5">
+                <p><span className="text-paper font-semibold">App Name:</span> Wundio (beliebig)</p>
+                <p><span className="text-paper font-semibold">Description:</span> Home music box (beliebig)</p>
+                <p><span className="text-paper font-semibold">Redirect URI:</span>{" "}
+                  <code className="bg-ink/40 text-honey px-1.5 py-0.5 rounded font-mono select-all">
+                    {redirectUri}
+                  </code>
+                </p>
+                <p className="text-muted/60 text-[10px]">
+                  Wichtig: Diese exakte URI muss in der Spotify App eingetragen sein.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2 */}
+          <div className="flex gap-3">
+            <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center
+                            text-[10px] font-bold mt-0.5
+                            ${hasClientId && hasSecret ? "bg-teal text-ink" : "bg-border text-muted"}`}>
+              2
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-display font-semibold text-paper mb-1">
+                Client ID & Secret hier eintragen
+              </p>
+              <p className="text-xs text-muted">
+                Zu finden im Spotify Dashboard unter "Settings" deiner App.
+                Oben in den Feldern eintragen und speichern.
+              </p>
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div className="flex gap-3">
+            <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center
+                            text-[10px] font-bold mt-0.5
+                            ${hasRefreshToken ? "bg-teal text-ink" : "bg-border text-muted"}`}>
+              3
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-display font-semibold text-paper mb-2">
+                Mit Spotify autorisieren
+              </p>
+              {hasRefreshToken ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-teal flex-shrink-0" />
+                  <p className="text-xs text-teal">Verbunden – Refresh Token gespeichert</p>
+                </div>
+              ) : credentialsReady ? (
+                <a href="/api/spotify/auth/start"
+                   className="inline-block px-4 py-2 bg-teal text-ink rounded-xl
+                              text-xs font-display font-bold hover:bg-teal/90 transition-colors">
+                  Mit Spotify verbinden
+                </a>
+              ) : (
+                <p className="text-xs text-muted/60">
+                  Zuerst Schritt 1 und 2 abschliessen.
+                </p>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Reconnect option */}
+      {hasRefreshToken && (
+        <div className="flex items-center justify-between text-xs text-muted">
+          <span>Anderen Spotify-Account verwenden?</span>
+          <a href="/api/spotify/auth/start"
+             className="text-teal underline underline-offset-2 hover:text-teal/70">
+            Erneut autorisieren
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { data: envEntries, mutate: mutateEnv } =
     useSWR<EnvEntry[]>("/api/settings/env/all", fetcher);
@@ -185,16 +304,7 @@ export default function Settings() {
           </p>
 
           {section === "spotify_api" && (
-            <p className="text-xs text-muted mb-4 leading-relaxed">
-              Notwendig damit RFID-Tags Playlists automatisch starten.{" "}
-              <a href="https://developer.spotify.com/dashboard"
-                 target="_blank" rel="noopener noreferrer"
-                 className="text-teal underline underline-offset-2">
-                App im Spotify Developer Dashboard erstellen
-              </a>
-              {" "}– dann Client ID und Secret eintragen.
-              Den Refresh Token generiert Wundio automatisch nach der Autorisierung (kommt bald).
-            </p>
+            <SpotifySetupGuide entries={entries} saved={saved} />
           )}
 
           <div className="space-y-4 mt-4">

@@ -19,7 +19,7 @@ from services.rfid import get_rfid_service
 from services.spotify import get_spotify_service
 from services.ai.voice import get_voice_orchestrator
 from services.buttons import build_default_service
-from api.routes import system, users, rfid_routes, settings_routes, playback, wifi, voice
+from api.routes import system, users, rfid_routes, settings_routes, playback, wifi, voice, spotify_auth
 
 logging.basicConfig(
     level=logging.INFO,
@@ -228,44 +228,6 @@ async def _on_button_press(name: str) -> None:
     # We'll add keyboard-event injection in Phase 2 if needed
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
-
-cfg = get_settings()
-
-app = FastAPI(
-    title="Wundio",
-    version=cfg.app_version,
-    lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url=None,
-)
-
-app.include_router(system.router,          prefix="/api/system")
-app.include_router(users.router,           prefix="/api/users")
-app.include_router(rfid_routes.router,     prefix="/api/rfid")
-app.include_router(settings_routes.router, prefix="/api/settings")
-app.include_router(playback.router,        prefix="/api/playback")
-app.include_router(wifi.router,             prefix="/api/wifi")
-app.include_router(voice.router,             prefix="/api/voice")
-
-_static = Path(cfg.static_dir)
-if _static.exists():
-    app.mount("/assets", StaticFiles(directory=str(_static / "assets")), name="assets")
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def spa_fallback(full_path: str):
-        return FileResponse(str(_static / "index.html"))
-else:
-    @app.get("/", include_in_schema=False)
-    async def root():
-        return {"message": "Wundio API running. Web UI not built yet."}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host=cfg.host, port=cfg.port, reload=cfg.debug)
-
-
 async def _on_voice_action(intent) -> None:
     """Dispatch voice intents to hardware services."""
     spotify = get_spotify_service()
@@ -297,3 +259,42 @@ async def _on_voice_action(intent) -> None:
                 spotify.set_volume(user.volume)
                 from services.display import get_display
                 get_display().show_user_login(user.display_name)
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+cfg = get_settings()
+
+app = FastAPI(
+    title="Wundio",
+    version=cfg.app_version,
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url=None,
+)
+
+app.include_router(system.router,          prefix="/api/system")
+app.include_router(users.router,           prefix="/api/users")
+app.include_router(rfid_routes.router,     prefix="/api/rfid")
+app.include_router(settings_routes.router, prefix="/api/settings")
+app.include_router(playback.router,        prefix="/api/playback")
+app.include_router(wifi.router,             prefix="/api/wifi")
+app.include_router(voice.router,             prefix="/api/voice")
+app.include_router(spotify_auth.router,      prefix="/api/spotify")
+
+_static = Path(cfg.static_dir)
+if _static.exists():
+    app.mount("/assets", StaticFiles(directory=str(_static / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        return FileResponse(str(_static / "index.html"))
+else:
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return {"message": "Wundio API running. Web UI not built yet."}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host=cfg.host, port=cfg.port, reload=cfg.debug)
