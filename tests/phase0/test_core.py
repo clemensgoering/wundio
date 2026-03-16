@@ -301,7 +301,7 @@ class TestRfidResolution:
             s.add(RfidTag(uid="AABB", tag_type="user", user_id=uid_val, label="Alice"))
             s.commit()
             r = resolve_rfid_action(s, "AABB")
-        assert r == {"type": "user", "user_id": uid_val}
+        assert r == {"type": "user_login", "user_id": uid_val}
 
     def test_playlist_tag(self, tmp_db):
         from database import get_engine, RfidTag
