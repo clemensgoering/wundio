@@ -4,7 +4,7 @@ Wundio – /api/settings routes
 Two tiers:
   GET/PUT /api/settings/{key}          → SQLite DB (runtime state)
   GET/PUT /api/settings/env/{key}      → /etc/wundio/wundio.env (persistent config)
-  GET     /api/settings/env            → all editable env keys + current values
+  GET     /api/settings/env/all        → all editable env keys + current values
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -17,8 +17,6 @@ router = APIRouter(tags=["settings"])
 
 ENV_FILE = Path("/etc/wundio/wundio.env")
 
-# ── Which env keys are user-editable via the UI ────────────────────────────
-# Format: key → { label, description, type, section, secret }
 ENV_SCHEMA: dict[str, dict[str, Any]] = {
     # ── Spotify ────────────────────────────────────────────────────────────
     "SPOTIFY_DEVICE_NAME": {
@@ -36,6 +34,7 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "spotify",
         "secret":      False,
     },
+    # ── Spotify Web API (REFRESH_TOKEN is set via OAuth, not manually) ─────
     "SPOTIFY_CLIENT_ID": {
         "label":       "Client ID",
         "description": "Spotify Developer App – Client ID",
@@ -50,13 +49,8 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "spotify_api",
         "secret":      True,
     },
-    "SPOTIFY_REFRESH_TOKEN": {
-        "label":       "Refresh Token",
-        "description": "OAuth Refresh Token (einmalig per Autorisierung erzeugt)",
-        "type":        "password",
-        "section":     "spotify_api",
-        "secret":      True,
-    },
+    # SPOTIFY_REFRESH_TOKEN is intentionally excluded from the UI schema.
+    # It is written automatically by the OAuth callback (/api/spotify/callback).
     # ── Display ────────────────────────────────────────────────────────────
     "DISPLAY_TYPE": {
         "label":       "Display-Typ",
@@ -65,7 +59,6 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "options":     ["none", "oled", "tft"],
         "section":     "display",
         "secret":      False,
-        "restart_note": "Neustart und ggf. erneute Installation von luma.lcd nötig (sudo bash /opt/wundio/scripts/install-display.sh)",
     },
     "DISPLAY_MODEL": {
         "label":       "Display-Modell",
@@ -96,25 +89,23 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "display",
         "secret":      False,
     },
-    # ── RFID ─────────────────────────────────────────────────────────────
+    # ── RFID ──────────────────────────────────────────────────────────────
     "RFID_TYPE": {
         "label":       "RFID-Reader Typ",
-        "description": "rc522 = SPI (Standard) · pn532 = I2C (Wundio HAT, NFC-kompatibel)",
+        "description": "rc522 = SPI (Standard) · pn532 = I2C (NFC-kompatibel)",
         "type":        "select",
         "options":     ["rc522", "pn532"],
         "section":     "rfid",
         "secret":      False,
-        "restart_note": "Neustart erforderlich. Beim Wechsel auf pn532: adafruit-blinka + adafruit-circuitpython-pn532 installieren.",
     },
-    # ── Audio ────────────────────────────────────────────────────────────────
+    # ── Audio ──────────────────────────────────────────────────────────────
     "AUDIO_TYPE": {
         "label":       "Audio-Ausgabe",
-        "description": "usb = USB-Soundkarte · i2s_max98357 = Wundio HAT DAC · hifiberry = HifiBerry HAT (Tier 3)",
+        "description": "usb = USB-Soundkarte · i2s_max98357 = DAC · hifiberry = HiFiBerry HAT",
         "type":        "select",
         "options":     ["usb", "i2s_max98357", "hifiberry"],
         "section":     "audio",
         "secret":      False,
-        "restart_note": "Neustart und ggf. /etc/asound.conf Anpassung erforderlich.",
     },
     # ── Hotspot ────────────────────────────────────────────────────────────
     "HOTSPOT_SSID": {
@@ -170,9 +161,19 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
     },
 }
 
+# Keys that require a service restart to take effect
+_RESTART_KEYS = {
+    "SPOTIFY_DEVICE_NAME", "SPOTIFY_BITRATE",
+    "DISPLAY_TYPE", "DISPLAY_MODEL", "DISPLAY_I2C_ADDRESS",
+    "DISPLAY_WIDTH", "DISPLAY_HEIGHT", "DISPLAY_DC_PIN",
+    "DISPLAY_RST_PIN", "DISPLAY_SPI_DEV",
+    "RFID_TYPE", "RFID_RST_PIN",
+    "AUDIO_TYPE",
+    "BUTTON_PLAY_PAUSE_PIN",
+}
+
 
 def _read_env() -> dict[str, str]:
-    """Parse /etc/wundio/wundio.env into a key→value dict."""
     result: dict[str, str] = {}
     if not ENV_FILE.exists():
         return result
@@ -187,10 +188,8 @@ def _read_env() -> dict[str, str]:
 
 
 def _write_env_key(key: str, value: str) -> None:
-    """Update or insert a single key in the env file."""
     if not ENV_FILE.exists():
         raise HTTPException(status_code=500, detail=f"{ENV_FILE} not found")
-
     lines = ENV_FILE.read_text().splitlines()
     found = False
     new_lines = []
@@ -201,24 +200,20 @@ def _write_env_key(key: str, value: str) -> None:
             found = True
         else:
             new_lines.append(line)
-
     if not found:
         new_lines.append(f"{key}={value}")
-
     ENV_FILE.write_text("\n".join(new_lines) + "\n")
 
 
-# ── Env settings ────────────────────────────────────────────────────────────
+# ── Env routes (must come before /{key}) ──────────────────────────────────
 
 @router.get("/env/schema")
 async def env_schema():
-    """Return the schema of all editable env keys."""
     return ENV_SCHEMA
 
 
 @router.get("/env/all")
 async def env_all():
-    """Return all editable env keys with current values (secrets masked)."""
     current = _read_env()
     result = []
     for key, meta in ENV_SCHEMA.items():
@@ -257,19 +252,19 @@ async def write_env_setting(key: str, data: EnvWrite):
     key = key.upper()
     if key not in ENV_SCHEMA:
         raise HTTPException(status_code=404, detail=f"Key '{key}' is not user-editable")
-
     try:
         _write_env_key(key, data.value)
-        # Mask secrets in log
         display_val = "***" if ENV_SCHEMA[key]["secret"] else data.value
         log_event("settings", f"Konfiguration aktualisiert: {key} = {display_val}")
     except PermissionError:
         raise HTTPException(
             status_code=403,
-            detail=f"Keine Schreibrechte auf {ENV_FILE}. "
-                   "Bitte 'chown root:wundio /etc/wundio/wundio.env && chmod 660 /etc/wundio/wundio.env' ausführen."
+            detail=(
+                f"Keine Schreibrechte auf {ENV_FILE}. "
+                "Bitte ausführen: chown root:wundio /etc/wundio/wundio.env && chmod 660 /etc/wundio/wundio.env"
+            )
         )
-    return {"ok": True, "restart_required": True}
+    return {"ok": True, "restart_required": key in _RESTART_KEYS}
 
 
 # ── DB settings ────────────────────────────────────────────────────────────

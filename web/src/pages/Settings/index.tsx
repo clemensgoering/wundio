@@ -22,7 +22,10 @@ interface WifiStatus {
 
 const SECTION_LABELS: Record<string, string> = {
   spotify:     "Spotify – Gerät",
-  spotify_api: "Spotify – Web API (für RFID Playlist-Autostart)",
+  spotify_api: "Spotify – Web API (RFID Playlist-Autostart)",
+  display:     "Display",
+  rfid:        "RFID Reader",
+  audio:       "Audio-Ausgabe",
   hotspot:     "WLAN Hotspot (Ersteinrichtung)",
   hardware:    "Hardware (Erweitert)",
 };
@@ -34,14 +37,13 @@ const fetcher = async (url: string) => {
 };
 
 function SpotifySetupGuide({ entries, saved }: { entries: EnvEntry[]; saved: Record<string, boolean> }) {
-  const hasClientId     = entries.find(e => e.key === "SPOTIFY_CLIENT_ID")?.has_value;
-  const hasSecret       = entries.find(e => e.key === "SPOTIFY_CLIENT_SECRET")?.has_value;
+  const hasClientId     = entries.find(e => e.key === "SPOTIFY_CLIENT_ID")?.has_value
+                        || saved["SPOTIFY_CLIENT_ID"];
+  const hasSecret       = entries.find(e => e.key === "SPOTIFY_CLIENT_SECRET")?.has_value
+                        || saved["SPOTIFY_CLIENT_SECRET"];
   const hasRefreshToken = entries.find(e => e.key === "SPOTIFY_REFRESH_TOKEN")?.has_value;
-  // Check if credentials were just saved in this session
-  const justSavedId     = saved["SPOTIFY_CLIENT_ID"];
-  const justSavedSecret = saved["SPOTIFY_CLIENT_SECRET"];
 
-  const credentialsReady = (hasClientId || justSavedId) && (hasSecret || justSavedSecret);
+  const credentialsReady = !!(hasClientId && hasSecret);
   const redirectUri      = `${window.location.protocol}//${window.location.hostname}:${window.location.port || 8000}/api/spotify/callback`;
 
   return (
@@ -198,6 +200,7 @@ export default function Settings() {
       setDirty(d => ({ ...d, [key]: false }));
       setSaved(s => ({ ...s, [key]: true }));
       if (data.restart_required) setRestartBanner(true);
+      else setRestartBanner(false);  // clear banner if not needed
       setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
       mutateEnv();
     } catch (e: any) {
@@ -324,7 +327,7 @@ export default function Settings() {
                                    transition-colors"
                       >
                         {e.options?.map(o => (
-                          <option key={o} value={o}>{o} kbit/s</option>
+                          <option key={o} value={o}>{o}</option>
                         ))}
                       </select>
                     </div>
