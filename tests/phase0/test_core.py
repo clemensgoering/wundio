@@ -289,8 +289,8 @@ class TestDatabase:
 
 class TestRfidResolution:
     def test_user_tag(self, tmp_db):
-        from database import get_engine, RfidTag
-        from models.user import resolve_rfid_action, User
+        from database import get_engine, RfidTag, User
+        from models.user import resolve_rfid_action
         from sqlmodel import Session
         with Session(get_engine()) as s:
             # Create user first to satisfy FK constraint
