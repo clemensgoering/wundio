@@ -54,6 +54,12 @@ jobs:
       - name: Check bash syntax
         run: |
           for f in scripts/*.sh; do
+            # Skip files that aren't bash (e.g. Python scripts with .sh extension)
+            first_line=$(head -1 "$f")
+            if echo "$first_line" | grep -qE "^#!.*(python|python3)"; then
+              echo "Skipping non-bash script: $f"
+              continue
+            fi
             echo "Checking $f..."
             bash -n "$f" || exit 1
           done
@@ -63,25 +69,43 @@ jobs:
     name: Sync scripts to wundio-website
     runs-on: ubuntu-latest
     needs: [test-core, validate-scripts]
-    # Only on push to main, not on PRs
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Non-blocking: website repo may not exist yet or token may not be configured
+    continue-on-error: true
 
     steps:
+      - name: Check if WEBSITE_REPO_TOKEN is configured
+        id: check-token
+        run: |
+          if [ -z "${{ secrets.WEBSITE_REPO_TOKEN }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "WEBSITE_REPO_TOKEN not set – skipping sync"
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Trigger wundio-website script sync
+        if: steps.check-token.outputs.configured == 'true'
         uses: actions/github-script@v7
         with:
-          # Requires a PAT with repo scope stored as secret WEBSITE_REPO_TOKEN
-          # Token must have write access to clemensgoering/wundio-website
           github-token: ${{ secrets.WEBSITE_REPO_TOKEN }}
           script: |
-            await github.rest.repos.createDispatchEvent({
-              owner: 'clemensgoering',
-              repo:  'wundio-website',
-              event_type: 'scripts-updated',
-              client_payload: {
-                sha:     context.sha,
-                ref:     context.ref,
-                run_id:  context.runId.toString(),
+            try {
+              await github.rest.repos.createDispatchEvent({
+                owner: 'clemensgoering',
+                repo:  'wundio-website',
+                event_type: 'scripts-updated',
+                client_payload: {
+                  sha:     context.sha,
+                  ref:     context.ref,
+                  run_id:  context.runId.toString(),
+                }
+              });
+              console.log('Dispatch sent to wundio-website');
+            } catch (error) {
+              if (error.status === 404) {
+                core.warning('wundio-website repo not found or token lacks access. Create the repo first: https://github.com/new');
+              } else {
+                throw error;
               }
-            });
-            console.log('Dispatch sent to wundio-website');
+            }
