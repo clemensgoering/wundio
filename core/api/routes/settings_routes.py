@@ -20,7 +20,7 @@ ENV_FILE = Path("/etc/wundio/wundio.env")
 # ── Which env keys are user-editable via the UI ────────────────────────────
 # Format: key → { label, description, type, section, secret }
 ENV_SCHEMA: dict[str, dict[str, Any]] = {
-    # Spotify
+    # ── Spotify ────────────────────────────────────────────────────────────
     "SPOTIFY_DEVICE_NAME": {
         "label":       "Gerätename",
         "description": "Name der Wundio Box in der Spotify App",
@@ -57,15 +57,66 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "spotify_api",
         "secret":      True,
     },
-    # Display
+    # ── Display ────────────────────────────────────────────────────────────
+    "DISPLAY_TYPE": {
+        "label":       "Display-Typ",
+        "description": "Art des angeschlossenen Displays. 'none' deaktiviert die Anzeige.",
+        "type":        "select",
+        "options":     ["none", "oled", "tft"],
+        "section":     "display",
+        "secret":      False,
+        "restart_note": "Neustart und ggf. erneute Installation von luma.lcd nötig (sudo bash /opt/wundio/scripts/install-display.sh)",
+    },
+    "DISPLAY_MODEL": {
+        "label":       "Display-Modell",
+        "description": "OLED: ssd1306 oder sh1106 · TFT: st7735 (128×160) oder ili9341 (240×320)",
+        "type":        "select",
+        "options":     ["ssd1306", "sh1106", "st7735", "ili9341"],
+        "section":     "display",
+        "secret":      False,
+    },
     "DISPLAY_I2C_ADDRESS": {
         "label":       "OLED I2C Adresse",
         "description": "Standard: 0x3C – einige Displays nutzen 0x3D",
         "type":        "text",
-        "section":     "hardware",
+        "section":     "display",
         "secret":      False,
     },
-    # Hotspot
+    "DISPLAY_WIDTH": {
+        "label":       "Breite (px)",
+        "description": "OLED: 128 · ST7735: 128 · ILI9341: 240",
+        "type":        "text",
+        "section":     "display",
+        "secret":      False,
+    },
+    "DISPLAY_HEIGHT": {
+        "label":       "Höhe (px)",
+        "description": "OLED: 64 · ST7735: 160 · ILI9341: 320",
+        "type":        "text",
+        "section":     "display",
+        "secret":      False,
+    },
+    # ── RFID ─────────────────────────────────────────────────────────────
+    "RFID_TYPE": {
+        "label":       "RFID-Reader Typ",
+        "description": "rc522 = SPI (Standard) · pn532 = I2C (Wundio HAT, NFC-kompatibel)",
+        "type":        "select",
+        "options":     ["rc522", "pn532"],
+        "section":     "rfid",
+        "secret":      False,
+        "restart_note": "Neustart erforderlich. Beim Wechsel auf pn532: adafruit-blinka + adafruit-circuitpython-pn532 installieren.",
+    },
+    # ── Audio ────────────────────────────────────────────────────────────────
+    "AUDIO_TYPE": {
+        "label":       "Audio-Ausgabe",
+        "description": "usb = USB-Soundkarte · i2s_max98357 = Wundio HAT DAC · hifiberry = HifiBerry HAT (Tier 3)",
+        "type":        "select",
+        "options":     ["usb", "i2s_max98357", "hifiberry"],
+        "section":     "audio",
+        "secret":      False,
+        "restart_note": "Neustart und ggf. /etc/asound.conf Anpassung erforderlich.",
+    },
+    # ── Hotspot ────────────────────────────────────────────────────────────
     "HOTSPOT_SSID": {
         "label":       "Hotspot SSID",
         "description": "WLAN-Name für den Ersteinrichtungs-Hotspot",
@@ -80,7 +131,7 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "hotspot",
         "secret":      True,
     },
-    # GPIO (advanced)
+    # ── GPIO / Hardware (Advanced) ─────────────────────────────────────────
     "RFID_RST_PIN": {
         "label":       "RFID RST Pin (BCM)",
         "description": "Standard: 25",
@@ -92,6 +143,28 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "label":       "Button Play/Pause (BCM)",
         "description": "Standard: 17",
         "type":        "text",
+        "section":     "hardware",
+        "secret":      False,
+    },
+    "DISPLAY_DC_PIN": {
+        "label":       "TFT DC-Pin (BCM)",
+        "description": "Nur TFT: Data/Command-Pin. Standard: 16",
+        "type":        "text",
+        "section":     "hardware",
+        "secret":      False,
+    },
+    "DISPLAY_RST_PIN": {
+        "label":       "TFT RST-Pin (BCM)",
+        "description": "Nur TFT: Reset-Pin. Standard: 20",
+        "type":        "text",
+        "section":     "hardware",
+        "secret":      False,
+    },
+    "DISPLAY_SPI_DEV": {
+        "label":       "TFT SPI CE (0 oder 1)",
+        "description": "Nur TFT: CE1 freilassen wenn RC522 auf CE0 läuft. Standard: 1",
+        "type":        "select",
+        "options":     ["0", "1"],
         "section":     "hardware",
         "secret":      False,
     },
@@ -197,6 +270,8 @@ async def write_env_setting(key: str, data: EnvWrite):
                    "Bitte 'chown root:wundio /etc/wundio/wundio.env && chmod 660 /etc/wundio/wundio.env' ausführen."
         )
     return {"ok": True, "restart_required": True}
+
+
 # ── DB settings ────────────────────────────────────────────────────────────
 
 class SettingWrite(BaseModel):

@@ -1,6 +1,6 @@
 """
-Wundio – Central Configuration
-All settings are resolved from environment variables with sensible defaults.
+Wundio – Central Configuration (pydantic-settings)
+Reads from /etc/wundio/wundio.env at startup.
 Hardware-dependent settings are layered on top via the HardwareProfile.
 """
 
@@ -32,16 +32,36 @@ class Settings(BaseSettings):
     port: int = 8000
     static_dir: str = "/opt/wundio/core/static/web"
 
-    # ── Hardware Pins (BCM numbering) ─────────────────────────────────
+    # ── RFID ──────────────────────────────────────────────────────────
+    # rfid_type: "rc522" (SPI, CE0) | "pn532" (I2C, shares bus with OLED)
+    rfid_type:    str = "rc522"
     rfid_rst_pin: int = 25
     rfid_spi_bus: int = 0
     rfid_spi_dev: int = 0
+    rfid_i2c_bus: int = 1    # PN532 only
+
+    # ── Audio ─────────────────────────────────────────────────────────
+    # audio_type: "usb" | "i2s_max98357" | "hifiberry"
+    audio_type: str = "usb" 
+
+    # ── Display – type and model ──────────────────────────────────────
+    # display_type:  "oled" | "tft" | "none"
+    # display_model: "ssd1306" | "sh1106"  (OLED)
+    #                "st7735"  | "ili9341" (TFT)
+    display_type:  str = "none"
+    display_model: str = "ssd1306"
 
     # I2C OLED – accepts hex (0x3C) or decimal (60) from env file
     display_i2c_address: int = 0x3C
     display_i2c_bus: int = 1
     display_width: int = 128
     display_height: int = 64
+
+    # TFT SPI – CE1 keeps CE0 free for RC522
+    display_spi_bus: int = 0
+    display_spi_dev: int = 1   # CE1
+    display_dc_pin:  int = 16  # BCM 16
+    display_rst_pin: int = 20  # BCM 20
 
     # Buttons (BCM pins)
     button_play_pause_pin: int = 17
@@ -76,9 +96,14 @@ class Settings(BaseSettings):
         "display_i2c_bus",
         "display_width",
         "display_height",
+        "display_spi_bus",
+        "display_spi_dev",
+        "display_dc_pin",
+        "display_rst_pin",
         "rfid_rst_pin",
         "rfid_spi_bus",
         "rfid_spi_dev",
+        "rfid_i2c_bus",
         "button_play_pause_pin",
         "button_next_pin",
         "button_prev_pin",

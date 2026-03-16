@@ -1,0 +1,162 @@
+# Wundio HAT – Hardware Specification v0.1
+# Basis für KiCad-Design und Community-Fertigung (JLCPCB)
+#
+# Designziel: Ein HAT deckt Tier 1 Essential bis Tier 2 Standard vollständig ab.
+# Tier 3 (Full-Stack) nutzt denselben HAT + HifiBerry HAT über Stacking-Header.
+# Endnutzer braucht nach Montage nur noch: Pi, Lautsprecher, RFID-Tags, Gehäuse.
+
+# ── Formfaktor ─────────────────────────────────────────────────────────────────
+form_factor:
+  standard: "Raspberry Pi HAT (65 × 56.5 mm)"
+  connector: "2× 20-Pin Female Header (40-Pin, 2.54mm Raster)"
+  stacking_header: "2× 20-Pin Tall Stacking Header (20mm) – für HifiBerry Tier 3"
+  mounting: "4× M2.5 Bohrungen, Pi-HAT-Standard-Positionen"
+  pi_compatibility: [Pi 3B, Pi 3B+, Pi 4B, Pi 5]  # alle 40-Pin-Modelle
+
+# ── RFID ──────────────────────────────────────────────────────────────────────
+rfid:
+  option_a:
+    chip: RC522
+    interface: SPI
+    pads: "Footprint für RC522 Breakout-Board (2.54mm Pin-Header, 8-Pin)"
+    signals: [SDA→CE0, SCK, MOSI, MISO, RST→BCM25, GND, 3.3V]
+    notes: "Bestücken für Tier 1 Standard-Setup"
+
+  option_b:
+    chip: PN532
+    interface: I2C
+    pads: "Footprint für PN532 Breakout-Board (2.54mm Pin-Header, 4-Pin)"
+    signals: [SDA→BCM2, SCL→BCM3, GND, 3.3V]
+    i2c_address: "0x24 (default)"
+    notes: "Bestücken für Wundio HAT Empfehlung – NFC-kompatibel, teilt I2C mit OLED"
+
+  mutual_exclusion: true
+  jumper: "JP1 – 2-Pin Jumper wählt SPI (RC522) oder I2C (PN532) Routing"
+
+# ── Audio ─────────────────────────────────────────────────────────────────────
+audio:
+  onboard_dac:
+    chip: MAX98357A
+    interface: I2S
+    signals:
+      BCLK:  BCM18  # Pin 12
+      LRCLK: BCM19  # Pin 35
+      DATA:  BCM21  # Pin 40
+    output: "3W Mono in 4Ω / 8Ω Lautsprecher direkt, oder 1.5W in 8Ω"
+    connector: "2-Pin Schraubklemme 3.5mm Raster (Lautsprecher)"
+    gain_resistor: "Lötbrücke für 3dB / 6dB / 9dB / 12dB / 15dB"
+    notes: >
+      Deckt Tier 1 + 2 vollständig ab.
+      Kein USB-Bus-Konflikt auf Pi 3.
+      Stacking-Header durchleitet I2S an HifiBerry für Tier 3.
+
+  tier3_passthrough:
+    description: "I2S-Signale (BCM18/19/21) werden über Stacking-Header an HifiBerry weitergeleitet"
+    max98357a_disable: "SHDN-Pin (BCM6) – High = aktiv, Low = Mute"
+    notes: "Tier 3 Nutzer: MAX98357A per Software deaktivieren, HifiBerry übernimmt"
+
+# ── Mikrofon ──────────────────────────────────────────────────────────────────
+microphone:
+  header:
+    type: "4-Pin 2.54mm Header für I2S MEMS Mikrofon"
+    chip_recommended: SPH0645LM4H  # I2S Mono MEMS, ~2€
+    signals: [BCLK→BCM18, LRCLK→BCM19, DATA→BCM20, GND]
+    notes: "Alternativ: USB-Mikrofon extern anschließen – Header ist optional"
+
+# ── Display ───────────────────────────────────────────────────────────────────
+display:
+  header_i2c:
+    pins: [SDA→BCM2, SCL→BCM3, GND, 3.3V]
+    connector: "4-Pin 2.54mm JST-PH oder Pin-Header"
+    compatible: [SSD1306 OLED 128×64, SH1106 OLED 128×64, PN532 teilt diesen Bus]
+
+  header_spi:
+    pins: [SCLK→BCM11, MOSI→BCM10, CS→BCM7/CE1, DC→BCM16, RST→BCM20, GND, 3.3V]
+    connector: "7-Pin 2.54mm Pin-Header"
+    compatible: [ST7735 TFT 128×160, ILI9341 TFT 240×320]
+    notes: "CE1 – kein Konflikt mit RC522 auf CE0"
+
+# ── Buttons ───────────────────────────────────────────────────────────────────
+buttons:
+  type: "5× Schraubklemme 2-Pin (3.5mm Raster) + gemeinsame GND-Klemme"
+  signals:
+    - label: Play/Pause
+      bcm: 17
+      pin: 11
+    - label: Next
+      bcm: 27
+      pin: 13
+    - label: Prev
+      bcm: 22
+      pin: 15
+    - label: Vol+
+      bcm: 23
+      pin: 16
+    - label: Vol-
+      bcm: 24
+      pin: 18
+  pull_up: "Intern via RPi.GPIO – kein externer Widerstand nötig"
+
+  rotary_encoder:
+    header: "5-Pin 2.54mm Header (CLK, DT, SW, GND, 3.3V)"
+    signals: [CLK→BCM5, DT→BCM6, SW→BCM13]
+    notes: "Optional – Tier 2 empfohlene Ersatz für Vol+/Vol-"
+
+# ── Status LEDs ───────────────────────────────────────────────────────────────
+leds:
+  power:
+    color: green
+    source: "3.3V Rail über 330Ω Vorwiderstand"
+    notes: "Immer an wenn HAT bestromt"
+  status:
+    color: amber
+    bcm: 26
+    notes: "Software-gesteuert – boot/playing/error Indikator"
+
+# ── Stromversorgung ────────────────────────────────────────────────────────────
+power:
+  source: "Pi 40-Pin Header (3.3V + 5V)"
+  3v3_consumption: "~150mA (PN532 ~80mA + MAX98357A Idle + LEDs)"
+  5v_passthrough: "5V an Schraubklemme für externe Aktoren (max 500mA, Sicherung F1 500mA)"
+  protection: "Verpolschutz-Diode auf 5V-Klemme"
+
+# ── Bestückungsvarianten ───────────────────────────────────────────────────────
+assembly_variants:
+  tier1_essential:
+    bestücken: [RC522 Header, MAX98357A, 5x Button Schraubklemmen, Status LED, OLED Header]
+    weglassen: [PN532 Header, Rotary Header, MEMS Mic Header, Stacking Header]
+    kosten_extra: "~8–12 € Bauteile + ~3 € Platine (JLCPCB 5er Pack ~15€)"
+
+  tier2_standard:
+    bestücken: [PN532 Header, MAX98357A, Rotary Header, Button Klemmen, TFT Header, MEMS Mic, Stacking Header]
+    weglassen: [RC522 Header]
+    kosten_extra: "~12–18 € Bauteile + ~3 € Platine"
+
+  tier3_fullstack:
+    bestücken: "wie Tier 2 + Stacking Header (HifiBerry steckt oben drauf)"
+    audio: "MAX98357A bleibt bestückt, wird per Software deaktiviert wenn HifiBerry aktiv"
+    kosten_extra: "~12–18 € HAT + ~45 € HifiBerry DAC2 HD"
+
+# ── Fertigungshinweise JLCPCB ─────────────────────────────────────────────────
+manufacturing:
+  layer_count: 2
+  pcb_thickness: "1.6mm"
+  surface_finish: "HASL (lead-free)"
+  solder_mask: "green"
+  min_quantity: 5
+  estimated_price_5pcs: "~$8–12 USD inkl. Versand"
+  gerber_export: "KiCad > Fabrication Outputs > Gerbers (Standard JLCPCB Settings)"
+  bom_for_jlcpcb_smt: true  # MAX98357A, Status-LED, Kondensatoren SMT-bestückbar
+
+# ── KiCad Projektstruktur ──────────────────────────────────────────────────────
+kicad_project:
+  schematic: "wundio-hat.kicad_sch"
+  pcb:       "wundio-hat.kicad_pcb"
+  symbols:   [MAX98357A, PN532, RC522_header, SSD1306_header, SPH0645]
+  footprints:
+    - "2.54mm THT Pin-Headers (1×4, 1×7, 1×8)"
+    - "Schraubklemmen 3.5mm Raster (1×2, 1×6)"
+    - "MAX98357A WSON-10 SMD"
+    - "0402 Widerstände / Kondensatoren"
+    - "JST-PH 4-Pin"
+  3d_models: "Pi HAT Standardmaß, STEP-Export für Gehäuseentwicklung"

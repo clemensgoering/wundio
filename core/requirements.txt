@@ -17,9 +17,12 @@ aiosqlite==0.20.*
 # spidev==3.*
 # mfrc522==0.0.7
 
-# OLED Display
+# OLED Display (installed by install.sh when DISPLAY_TYPE=oled)
 # luma.oled==3.*
 # Pillow==10.*
+
+# TFT Display (installed by install.sh when DISPLAY_TYPE=tft)
+# luma.lcd==2.*
 
 # Utilities
 python-dotenv==1.*

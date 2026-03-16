@@ -29,11 +29,8 @@ section() {
 }
 
 # -- Spinner
-# Usage: long_command | spin "Label"
-# Or:    spin "Label" & SPIN_PID=$!; long_command; kill $SPIN_PID
 _spin_frames=("." "o" "O" "o")
 spin_bg() {
-    # Runs in background, prints spinner until killed
     local label="$1"
     local i=0
     while true; do
@@ -44,17 +41,15 @@ spin_bg() {
 }
 
 run_spin() {
-    # run_spin "Label" command args...
     local label="$1"; shift
     spin_bg "$label" &
     local SPIN_PID=$!
-    # Run command, capture exit code, log all output
     set +e
     "$@" >> "$LOG_FILE" 2>&1
     local EXIT_CODE=$?
     set -e
     kill $SPIN_PID 2>/dev/null; wait $SPIN_PID 2>/dev/null || true
-    printf "\r  %-60s\n" "" >&2   # clear spinner line
+    printf "\r  %-60s\n" "" >&2
     if [[ $EXIT_CODE -eq 0 ]]; then
         ok "$label"
     else
@@ -82,7 +77,7 @@ cat << 'EOF'
 EOF
 echo -e "${NC}"
 
-# -- 1. Hardware Detection
+# -- 1/10 Hardware Detection
 section "1/10 Detecting hardware"
 
 MODEL_FILE="/proc/device-tree/model"
@@ -98,11 +93,11 @@ RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
 info "RAM: ${RAM_MB} MB"
 
 PI_GEN=0
-if [[ "$HW_MODEL" =~ "Raspberry Pi 5" ]];      then PI_GEN=5
-elif [[ "$HW_MODEL" =~ "Raspberry Pi 4" ]];    then PI_GEN=4
-elif [[ "$HW_MODEL" =~ "Raspberry Pi 3" ]];    then PI_GEN=3
-elif [[ "$HW_MODEL" =~ "Raspberry Pi Zero 2" ]];then PI_GEN=3
-elif [[ "$HW_MODEL" =~ "Raspberry Pi 2" ]];    then PI_GEN=2
+if [[ "$HW_MODEL" =~ "Raspberry Pi 5" ]];       then PI_GEN=5
+elif [[ "$HW_MODEL" =~ "Raspberry Pi 4" ]];     then PI_GEN=4
+elif [[ "$HW_MODEL" =~ "Raspberry Pi 3" ]];     then PI_GEN=3
+elif [[ "$HW_MODEL" =~ "Raspberry Pi Zero 2" ]]; then PI_GEN=3
+elif [[ "$HW_MODEL" =~ "Raspberry Pi 2" ]];     then PI_GEN=2
 else PI_GEN=3; fi
 
 info "Pi generation: ${PI_GEN}"
@@ -112,7 +107,6 @@ FEAT_AI_LOCAL=false; FEAT_AI_CLOUD=false; FEAT_GAMES_ADVANCED=false
 [[ $PI_GEN -ge 4 ]] && FEAT_AI_CLOUD=true && FEAT_GAMES_ADVANCED=true
 [[ $PI_GEN -ge 5 && $RAM_MB -ge 7000 ]] && FEAT_AI_LOCAL=true
 
-# Time estimate
 case $PI_GEN in
     3) EST="20-35 min" ;;
     4) EST="10-20 min" ;;
@@ -121,18 +115,135 @@ case $PI_GEN in
 esac
 echo ""
 echo -e "  ${YELLOW}Estimated installation time on Pi ${PI_GEN}: ${EST}${NC}"
-echo -e "  ${YELLOW}Please do not interrupt the installation.${NC}"
 echo ""
 ok "Hardware detected - Pi ${PI_GEN}, ${RAM_MB} MB RAM"
 
-# -- 2. System packages
+# -- 1b/10 Interactive Setup Questions
+# These questions run once during installation and save time later.
+# All settings can be changed afterwards in the Wundio web interface.
+section "1b/10 Setup questions (hardware)"
+
+echo ""
+echo -e "  ${BOLD}Welches Display ist angeschlossen?${NC}"
+echo ""
+echo "    0) Kein Display"
+echo "    1) OLED 128x64  – SSD1306  (I2C)   ← Standard / Starter"
+echo "    2) OLED 128x64  – SH1106   (I2C)"
+echo "    3) TFT  128x160 – ST7735   (SPI)   ← Starter mit Farbe"
+echo "    4) TFT  240x320 – ILI9341  (SPI)   ← Full-Stack"
+echo ""
+echo -e "  ${YELLOW}Kann jederzeit in der App unter Einstellungen > Display geändert werden.${NC}"
+echo ""
+
+SETUP_DISPLAY_TYPE="none"
+SETUP_DISPLAY_MODEL="ssd1306"
+SETUP_DISPLAY_WIDTH=128
+SETUP_DISPLAY_HEIGHT=64
+SETUP_INSTALL_LUMA_LCD=false
+
+while true; do
+    read -r -p "  Deine Wahl [0-4]: " DISPLAY_CHOICE
+    case "$DISPLAY_CHOICE" in
+        0)
+            SETUP_DISPLAY_TYPE="none"
+            ok "Kein Display - OLED/TFT deaktiviert"
+            break ;;
+        1)
+            SETUP_DISPLAY_TYPE="oled"; SETUP_DISPLAY_MODEL="ssd1306"
+            SETUP_DISPLAY_WIDTH=128;   SETUP_DISPLAY_HEIGHT=64
+            ok "OLED SSD1306 (I2C 0x3C, 128x64)"
+            break ;;
+        2)
+            SETUP_DISPLAY_TYPE="oled"; SETUP_DISPLAY_MODEL="sh1106"
+            SETUP_DISPLAY_WIDTH=128;   SETUP_DISPLAY_HEIGHT=64
+            ok "OLED SH1106 (I2C 0x3C, 128x64)"
+            break ;;
+        3)
+            SETUP_DISPLAY_TYPE="tft";  SETUP_DISPLAY_MODEL="st7735"
+            SETUP_DISPLAY_WIDTH=128;   SETUP_DISPLAY_HEIGHT=160
+            SETUP_INSTALL_LUMA_LCD=true
+            ok "TFT ST7735 (SPI CE1, 128x160)"
+            break ;;
+        4)
+            SETUP_DISPLAY_TYPE="tft";  SETUP_DISPLAY_MODEL="ili9341"
+            SETUP_DISPLAY_WIDTH=240;   SETUP_DISPLAY_HEIGHT=320
+            SETUP_INSTALL_LUMA_LCD=true
+            ok "TFT ILI9341 (SPI CE1, 240x320)"
+            break ;;
+        *)
+            echo -e "  ${RED}Ungültige Eingabe. Bitte 0-4 eingeben.${NC}" ;;
+    esac
+done
+
+# -- RFID-Reader
+echo ""
+echo -e "  ${BOLD}Welchen RFID-Reader verwendest du?${NC}"
+echo ""
+echo "    1) RC522  (SPI, CE0)   ← Standard / wird aktiv getestet"
+echo "    2) PN532  (I2C)        ← Wundio HAT / stabiler, NFC-kompatibel"
+echo ""
+echo -e "  ${YELLOW}Kann jederzeit in der App unter Einstellungen > Hardware geändert werden.${NC}"
+echo ""
+
+SETUP_RFID_TYPE="rc522"
+SETUP_INSTALL_PN532=false
+
+while true; do
+    read -r -p "  Deine Wahl [1-2]: " RFID_CHOICE
+    case "$RFID_CHOICE" in
+        1)
+            SETUP_RFID_TYPE="rc522"
+            ok "RFID RC522 (SPI CE0, RST BCM25)"
+            break ;;
+        2)
+            SETUP_RFID_TYPE="pn532"
+            SETUP_INSTALL_PN532=true
+            ok "RFID PN532 (I2C, teilt Bus mit OLED/Display)"
+            break ;;
+        *)
+            echo -e "  ${RED}Ungültige Eingabe. Bitte 1 oder 2 eingeben.${NC}" ;;
+    esac
+done
+
+# -- Audio
+echo ""
+echo -e "  ${BOLD}Welche Audio-Ausgabe verwendest du?${NC}"
+echo ""
+echo "    1) USB-Soundkarte        ← Einfachste Option / Pi 3 kompatibel"
+echo "    2) MAX98357A I2S DAC     ← Wundio HAT / besser, kein USB-Bus-Konflikt"
+echo "    3) HifiBerry DAC HAT     ← Tier 3 / Full-Stack (Pi 4/5, belegt 40-Pin)"
+echo ""
+echo -e "  ${YELLOW}Kann jederzeit in der App unter Einstellungen > Audio geändert werden.${NC}"
+echo ""
+
+SETUP_AUDIO_TYPE="usb"
+
+while true; do
+    read -r -p "  Deine Wahl [1-3]: " AUDIO_CHOICE
+    case "$AUDIO_CHOICE" in
+        1)
+            SETUP_AUDIO_TYPE="usb"
+            ok "USB-Soundkarte"
+            break ;;
+        2)
+            SETUP_AUDIO_TYPE="i2s_max98357"
+            ok "MAX98357A I2S DAC (BCLK=BCM18, LRCLK=BCM19, DATA=BCM21)"
+            break ;;
+        3)
+            SETUP_AUDIO_TYPE="hifiberry"
+            ok "HifiBerry DAC HAT"
+            break ;;
+        *)
+            echo -e "  ${RED}Ungültige Eingabe. Bitte 1-3 eingeben.${NC}" ;;
+    esac
+done
+
+# -- 2/10 System packages
 section "2/10 Installing system packages"
 info "Updating package lists..."
 run_spin "apt update" apt-get update
 
 # -- Build install manifest
-# Record which packages were already installed BEFORE we touch anything.
-# Uninstall will only remove packages that weren't present before Wundio.
 MANIFEST_DIR="/var/lib/wundio"
 mkdir -p "$MANIFEST_DIR"
 MANIFEST_FILE="$MANIFEST_DIR/installed-packages.txt"
@@ -163,7 +274,6 @@ for pkg in "${APT_PACKAGES[@]}"; do
     fi
 done
 
-# Write general install metadata
 cat > "$MANIFEST_META" << METAEOF
 install_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 install_user=${SUDO_USER:-root}
@@ -171,12 +281,13 @@ pi_model=${HW_MODEL}
 pi_generation=${PI_GEN}
 git_url=${GIT_URL}
 git_branch=${GIT_BRANCH}
+display_type=${SETUP_DISPLAY_TYPE}
+display_model=${SETUP_DISPLAY_MODEL}
 METAEOF
 
 ok "Install manifest created at $MANIFEST_FILE"
 
 info "Installing dependencies (git, python3, i2c-tools, hostapd...)"
-# Use apt for as many packages as possible to avoid pip compilation later
 run_spin "apt packages" apt-get install -y \
     git \
     python3 python3-pip python3-venv python3-dev \
@@ -190,7 +301,7 @@ run_spin "apt packages" apt-get install -y \
     python3-rpi.gpio \
     python3-spidev
 
-# -- 3. Enable SPI + I2C
+# -- 3/10 Enable SPI + I2C
 section "3/10 Enabling SPI and I2C"
 if command -v raspi-config &>/dev/null; then
     raspi-config nonint do_spi 0
@@ -204,7 +315,7 @@ else
     warn "raspi-config not found - appended SPI/I2C to $CONFIG_FILE"
 fi
 
-# -- 4. Create wundio user & directories
+# -- 4/10 Create wundio user & directories
 section "4/10 Creating user and directories"
 if ! id "$WUNDIO_USER" &>/dev/null; then
     useradd --system --no-create-home --shell /bin/false \
@@ -223,7 +334,7 @@ chown -R root:"$WUNDIO_USER" "$CONF_DIR"
 chmod 750 "$CONF_DIR"
 ok "Directories ready"
 
-# -- 5. Clone / update repo
+# -- 5/10 Clone / update repo
 section "5/10 Fetching Wundio source"
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     info "Repo exists - pulling latest $GIT_BRANCH"
@@ -239,7 +350,7 @@ fi
 chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$INSTALL_DIR"
 ok "Source ready at $INSTALL_DIR"
 
-# -- 6. Python venv
+# -- 6/10 Python venv
 section "6/10 Setting up Python environment"
 echo -e "  ${YELLOW}Pi 3: ca. 5-10 Minuten / Pi 4/5: ca. 2-4 Minuten${NC}"
 echo -e "  ${YELLOW}   Bitte warten - Python-Pakete werden kompiliert...${NC}"
@@ -247,8 +358,6 @@ echo ""
 
 info "Creating virtual environment..."
 python3 -m venv --system-site-packages "$VENV_DIR"
-# --system-site-packages reuses apt-installed Pillow, RPi.GPIO, spidev
-# This avoids slow compilation steps entirely
 
 info "Upgrading pip..."
 run_spin "pip upgrade" "$VENV_DIR/bin/pip" install --upgrade pip --quiet
@@ -260,87 +369,88 @@ run_spin "pip core deps" "$VENV_DIR/bin/pip" install \
     -r "$INSTALL_DIR/core/requirements.txt"
 
 info "Installing hardware packages..."
-# mfrc522 is small and has a wheel; luma.oled links against system Pillow
 run_spin "pip hardware" "$VENV_DIR/bin/pip" install \
     --prefer-binary \
     --quiet \
-    mfrc522 \
-    "luma.oled"
-ok "Python environment ready"
+    mfrc522
 
-# -- 6b. librespot via Raspotify
-# Raspotify is the maintained Debian package wrapping librespot.
-# Supports Pi 3 (armv7), Pi 4, Pi 5 on Bookworm 64-bit and 32-bit.
-# https://github.com/dtcooper/raspotify
-if [[ "$FEAT_SPOTIFY" == "true" ]]; then
-    section "6b/10 Installing librespot (Spotify Connect)"
-echo -e "  ${YELLOW}Normalerweise < 1 Minute (Paket-Download)${NC}"
-echo -e "  ${YELLOW}   Nur wenn kein Paket verfügbar: Rust-Build = 30-60 Min.${NC}"
-echo ""
-    mkdir -p "${INSTALL_DIR}/bin"
-    LS_DONE=false
-
-    # 1. Raspotify - preferred: works on all Pi models, Bookworm-native .deb
-    if command -v curl &>/dev/null; then
-        info "Installing Raspotify (librespot Debian package)..."
-        # Raspotify installs its own apt repo and the librespot binary
-        if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh >> "$LOG_FILE" 2>&1; then
-            # Disable the Raspotify systemd service - Wundio manages librespot directly
-            systemctl disable raspotify 2>/dev/null || true
-            systemctl stop    raspotify 2>/dev/null || true
-            # Link the installed binary for Wundio
-            RASPOTIFY_BIN=$(which librespot 2>/dev/null || echo "")
-            if [[ -n "$RASPOTIFY_BIN" ]]; then
-                ln -sf "$RASPOTIFY_BIN" "${INSTALL_DIR}/bin/librespot"
-                LS_DONE=true
-                ok "librespot ready via Raspotify"
-            fi
-        else
-            warn "Raspotify install script failed"
-        fi
-    fi
-
-    # 2. apt (Debian repos - may be available on some systems)
-    if [[ "$LS_DONE" == "false" ]] && apt-cache show librespot &>/dev/null 2>&1; then
-        info "Trying apt librespot..."
-        if apt-get install -y librespot >> "$LOG_FILE" 2>&1; then
-            ln -sf "$(which librespot)" "${INSTALL_DIR}/bin/librespot" 2>/dev/null || true
-            LS_DONE=true
-            ok "librespot installed via apt"
-        fi
-    fi
-
-    # 3. Build from source (last resort - slow, show live output so user sees progress)
-    if [[ "$LS_DONE" == "false" ]]; then
-        warn "No package available - building librespot from Rust source."
-        warn "On Pi 3 this takes 30-60 minutes. Output will be shown live."
-        echo ""
-        apt-get install -y pkg-config libssl-dev libasound2-dev >> "$LOG_FILE" 2>&1
-        if ! command -v cargo &>/dev/null; then
-            info "Installing Rust toolchain (this may take a few minutes)..."
-            curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
-        fi
-        # Source cargo env - critical step that was missing before
-        # shellcheck disable=SC1090
-        source "$HOME/.cargo/env" 2>/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
-        info "Building librespot - live output below:"
-        echo "------------------------------------------"
-        # Run cargo visibly (not via run_spin) so user sees compiler progress
-        cargo install librespot --root "${INSTALL_DIR}" 2>&1 | tee -a "$LOG_FILE"
-        echo "------------------------------------------"
-        if [[ -f "${INSTALL_DIR}/bin/librespot" ]]; then
-            LS_DONE=true
-            ok "librespot built from source"
-        else
-            error "librespot build failed - see $LOG_FILE"
-        fi
-    fi
-
-    chmod +x "${INSTALL_DIR}/scripts/librespot-event.sh" 2>/dev/null || true
-    ok "Spotify (librespot) ready"
+# Display library – only what's needed for the chosen display type
+if [[ "$SETUP_DISPLAY_TYPE" == "oled" ]]; then
+    run_spin "pip luma.oled" "$VENV_DIR/bin/pip" install \
+        --prefer-binary --quiet "luma.oled"
+elif [[ "$SETUP_DISPLAY_TYPE" == "tft" ]]; then
+    run_spin "pip luma.lcd" "$VENV_DIR/bin/pip" install \
+        --prefer-binary --quiet "luma.lcd"
+else
+    info "No display selected - skipping luma install"
 fi
 
-# -- 7. Write config env
+# PN532 – Adafruit library + blinka (only if PN532 selected)
+if [[ "$SETUP_RFID_TYPE" == "pn532" ]]; then
+    run_spin "pip pn532" "$VENV_DIR/bin/pip" install \
+        --prefer-binary --quiet \
+        adafruit-blinka adafruit-circuitpython-pn532
+fi
+
+ok "Python environment ready" 
+
+# -- 6b/10 librespot via Raspotify
+section "6b/10 Installing Spotify (librespot / Raspotify)"
+
+LS_DONE=false
+
+# Try Raspotify package first (fastest, maintained Debian package)
+if curl -fsSL https://dtcooper.github.io/raspotify/install.sh | bash >> "$LOG_FILE" 2>&1; then
+    LS_DONE=true
+    ok "Raspotify installed"
+fi
+
+# Fallback: pre-built librespot binary from GitHub releases
+if [[ "$LS_DONE" == "false" ]]; then
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        armv7l)  LS_ASSET="librespot-linux-armv7"  ;;
+        aarch64) LS_ASSET="librespot-linux-aarch64" ;;
+        x86_64)  LS_ASSET="librespot-linux-x86_64"  ;;
+        *)       LS_ASSET="" ;;
+    esac
+    if [[ -n "$LS_ASSET" ]]; then
+        LS_URL="https://github.com/librespot-org/librespot/releases/latest/download/${LS_ASSET}"
+        if curl -fsSL "$LS_URL" -o "${INSTALL_DIR}/bin/librespot" >> "$LOG_FILE" 2>&1; then
+            chmod +x "${INSTALL_DIR}/bin/librespot"
+            LS_DONE=true
+            ok "librespot binary installed"
+        fi
+    fi
+fi
+
+# Last resort: build from source (slow on Pi 3, shows live output)
+if [[ "$LS_DONE" == "false" ]]; then
+    warn "No package available - building librespot from Rust source."
+    warn "On Pi 3 this takes 30-60 minutes. Output will be shown live."
+    echo ""
+    apt-get install -y pkg-config libssl-dev libasound2-dev >> "$LOG_FILE" 2>&1
+    if ! command -v cargo &>/dev/null; then
+        info "Installing Rust toolchain..."
+        curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    fi
+    # shellcheck disable=SC1090
+    source "$HOME/.cargo/env" 2>/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
+    info "Building librespot - live output below:"
+    echo "------------------------------------------"
+    cargo install librespot --root "${INSTALL_DIR}" 2>&1 | tee -a "$LOG_FILE"
+    echo "------------------------------------------"
+    if [[ -f "${INSTALL_DIR}/bin/librespot" ]]; then
+        LS_DONE=true
+        ok "librespot built from source"
+    else
+        error "librespot build failed - see $LOG_FILE"
+    fi
+fi
+
+chmod +x "${INSTALL_DIR}/scripts/librespot-event.sh" 2>/dev/null || true
+ok "Spotify (librespot) ready"
+
 # -- 7/10 Build Web Interface
 section "7/10 Building Web Interface"
 echo -e "  ${YELLOW}Pi 3: ca. 5-15 Minuten / Pi 4/5: ca. 2-5 Minuten${NC}"
@@ -351,7 +461,6 @@ WEB_DIR="${INSTALL_DIR}/web"
 WEB_DIST="${INSTALL_DIR}/core/static/web"
 
 if [[ -d "$WEB_DIR" ]] && [[ -f "$WEB_DIR/package.json" ]]; then
-    # Install Node.js if missing or too old (need v18+)
     if ! command -v node &>/dev/null; then
         run_spin "install nodejs" apt-get install -y nodejs npm
     fi
@@ -361,7 +470,6 @@ if [[ -d "$WEB_DIR" ]] && [[ -f "$WEB_DIR/package.json" ]]; then
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >> "$LOG_FILE" 2>&1
         run_spin "install nodejs 20" apt-get install -y nodejs
     fi
-    # Ensure build output dir is writable by wundio user before building
     mkdir -p "$WEB_DIST"
     chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$WEB_DIST"
     chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$WEB_DIR"
@@ -376,11 +484,12 @@ else
     warn "web/ not found - skipping Web UI build (run: cd /opt/wundio/web && npm install && npm run build)"
 fi
 
+# -- 8/10 Write configuration
 section "8/10 Writing configuration"
 cat > "$CONF_DIR/wundio.env" << ENVEOF
 # Wundio - Runtime Configuration
 # Generated by install.sh on $(date)
-# Edit this file to customise your setup, then: sudo systemctl restart wundio-core
+# Edit this file or use the web interface at http://wundio.local:8000/settings
 
 APP_VERSION=0.1.0
 DEBUG=false
@@ -394,7 +503,7 @@ FEAT_AI_LOCAL=${FEAT_AI_LOCAL}
 FEAT_AI_CLOUD=${FEAT_AI_CLOUD}
 FEAT_GAMES_ADVANCED=${FEAT_GAMES_ADVANCED}
 
-# WiFi Hotspot (shown on OLED during setup)
+# WiFi Hotspot (shown on display during setup)
 HOTSPOT_SSID=Wundio-Setup
 HOTSPOT_PASSWORD=wundio123
 HOTSPOT_IP=192.168.50.1
@@ -402,6 +511,12 @@ HOTSPOT_IP=192.168.50.1
 # Spotify / librespot
 SPOTIFY_DEVICE_NAME=Wundio
 SPOTIFY_BITRATE=160
+
+# RFID reader type (rc522 or pn532 – set by installer)
+RFID_TYPE=${SETUP_RFID_TYPE}
+
+# Audio type (usb, i2s_max98357, hifiberry – set by installer)
+AUDIO_TYPE=${SETUP_AUDIO_TYPE}
 
 # Hardware pins (BCM numbering)
 RFID_RST_PIN=25
@@ -411,16 +526,30 @@ BUTTON_PREV_PIN=22
 BUTTON_VOL_UP_PIN=23
 BUTTON_VOL_DOWN_PIN=24
 
-# OLED I2C
+# Display – set by installer (change in web interface: Settings > Display)
+DISPLAY_TYPE=${SETUP_DISPLAY_TYPE}
+DISPLAY_MODEL=${SETUP_DISPLAY_MODEL}
+DISPLAY_WIDTH=${SETUP_DISPLAY_WIDTH}
+DISPLAY_HEIGHT=${SETUP_DISPLAY_HEIGHT}
 DISPLAY_I2C_ADDRESS=0x3C
 DISPLAY_I2C_BUS=1
+# TFT only (ignored when DISPLAY_TYPE=oled or none):
+DISPLAY_SPI_DEV=1
+DISPLAY_DC_PIN=16
+DISPLAY_RST_PIN=20
+
+# AI / LLM
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama3.2:3b
+WHISPER_MODEL=tiny
+TTS_VOICE=de_DE-thorsten-medium
 ENVEOF
 
 chmod 660 "$CONF_DIR/wundio.env"
 chown root:"$WUNDIO_USER" "$CONF_DIR/wundio.env"
 ok "Config written to $CONF_DIR/wundio.env"
 
-# -- 8. systemd services
+# -- 9/10 systemd services
 section "9/10 Installing systemd services"
 SYSTEMD_DIR="/etc/systemd/system"
 for svc in wundio-core wundio-rfid; do
@@ -430,71 +559,30 @@ systemctl daemon-reload
 systemctl enable wundio-rfid wundio-core
 ok "Services registered and enabled"
 
-# -- 9. WiFi Hotspot setup
-section "10/10 Setting up WiFi hotspot"
-run_spin "hotspot setup" bash "$INSTALL_DIR/scripts/setup-hotspot.sh"
+# -- 10/10 Start services
+section "10/10 Starting Wundio"
+systemctl start wundio-rfid wundio-core
+sleep 2
+if systemctl is-active wundio-core &>/dev/null; then
+    ok "wundio-core is running"
+else
+    warn "wundio-core did not start - check: journalctl -u wundio-core -n 50"
+fi
 
 # -- Done
-
-# Detect if already on WiFi
-WIFI_ALREADY_CONFIGURED=false
-if grep -q "WIFI_CONFIGURED=true" "$CONF_DIR/wundio.env" 2>/dev/null; then
-    WIFI_ALREADY_CONFIGURED=true
-fi
-if command -v iwgetid &>/dev/null && iwgetid wlan0 --raw 2>/dev/null | grep -q .; then
-    WIFI_ALREADY_CONFIGURED=true
-fi
-
-# Determine local IP for display
-LOCAL_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "")
-
 echo ""
-echo -e "${GREEN}${BOLD}--------------------------------------------${NC}"
-echo -e "${GREEN}${BOLD}  Wundio installation complete.${NC}"
-echo -e "${GREEN}${BOLD}--------------------------------------------${NC}"
+echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}  Wundio installation complete!${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-
-if [[ "$WIFI_ALREADY_CONFIGURED" == "true" ]]; then
-    echo -e "  Pi ist mit deinem Heimnetz verbunden."
+echo -e "  ${BOLD}Web interface:${NC}  http://wundio.local:8000"
+echo -e "  ${BOLD}Config:${NC}         /etc/wundio/wundio.env"
+echo -e "  ${BOLD}Logs:${NC}           journalctl -u wundio-core -f"
+echo -e "  ${BOLD}Display:${NC}        ${SETUP_DISPLAY_TYPE} / ${SETUP_DISPLAY_MODEL}"
+echo ""
+if [[ "$SETUP_DISPLAY_TYPE" == "tft" ]]; then
+    echo -e "  ${YELLOW}TFT-Display: Pinout prüfen unter wundio.dev/docs/hardware${NC}"
     echo ""
-    echo -e "  Nach dem Neustart Wundio öffnen:"
-    [[ -n "${LOCAL_IP:-}" ]] && echo -e "    ${YELLOW}http://${LOCAL_IP}:8000${NC}"
-    echo -e "    ${YELLOW}http://wundio.local:8000${NC}"
-else
-    echo -e "  Nach dem Neustart:"
-    echo -e "  1. Mit WLAN verbinden:  ${YELLOW}Wundio-Setup${NC}  (Passwort: ${YELLOW}wundio123${NC})"
-    echo -e "  2. Browser öffnen:      ${YELLOW}http://192.168.50.1:8000${NC}"
-    echo -e "  3. Heimnetz eintragen -> Wundio verbindet sich automatisch"
 fi
-
+echo -e "  ${BLUE}Docs & Community:  wundio.dev${NC}"
 echo ""
-echo -e "  Log: ${LOG_FILE}"
-echo ""
-
-# -- Auto-reboot
-# SPI and I2C are only active after a reboot.
-# wundio-core is enabled via systemd and will start automatically on every boot.
-# We reboot automatically after a short countdown (user can cancel with Ctrl+C).
-
-echo -e "  ${CYAN}Wundio startet automatisch bei jedem Hochfahren (systemd).${NC}"
-echo ""
-
-# Ensure wundio-core is enabled for autostart on every boot
-systemctl enable wundio-core wundio-rfid 2>/dev/null || true
-ok "Autostart aktiviert (wundio-core, wundio-rfid)"
-
-echo ""
-echo -e "  Neustart in 10 Sekunden... (Abbrechen: Strg+C)"
-echo ""
-
-for i in 10 9 8 7 6 5 4 3 2 1; do
-    printf "
-  %2d Sekunden... " "$i"
-    sleep 1
-done
-printf "
-  Starte neu...        
-"
-echo ""
-
-reboot
