@@ -135,28 +135,6 @@ def _write_env_key(key: str, value: str) -> None:
     ENV_FILE.write_text("\n".join(new_lines) + "\n")
 
 
-# ── DB settings ────────────────────────────────────────────────────────────
-
-class SettingWrite(BaseModel):
-    value: str
-
-
-@router.get("/{key}")
-async def read_setting(key: str):
-    if key == "env":
-        raise HTTPException(status_code=400, detail="Use /api/settings/env")
-    return {"key": key, "value": get_setting(key)}
-
-
-@router.put("/{key}")
-async def write_setting(key: str, data: SettingWrite):
-    if key == "env":
-        raise HTTPException(status_code=400, detail="Use /api/settings/env/{key}")
-    set_setting(key, data.value)
-    log_event("settings", f"Einstellung gespeichert: {key}")
-    return {"ok": True}
-
-
 # ── Env settings ────────────────────────────────────────────────────────────
 
 @router.get("/env/schema")
@@ -219,3 +197,19 @@ async def write_env_setting(key: str, data: EnvWrite):
                    "Bitte 'chown root:wundio /etc/wundio/wundio.env && chmod 660 /etc/wundio/wundio.env' ausführen."
         )
     return {"ok": True, "restart_required": True}
+# ── DB settings ────────────────────────────────────────────────────────────
+
+class SettingWrite(BaseModel):
+    value: str
+
+
+@router.get("/{key}")
+async def read_setting(key: str):
+    return {"key": key, "value": get_setting(key)}
+
+
+@router.put("/{key}")
+async def write_setting(key: str, data: SettingWrite):
+    set_setting(key, data.value)
+    log_event("settings", f"Einstellung gespeichert: {key}")
+    return {"ok": True}

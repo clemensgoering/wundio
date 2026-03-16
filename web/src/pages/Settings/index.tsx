@@ -27,7 +27,11 @@ const SECTION_LABELS: Record<string, string> = {
   hardware:    "Hardware (Erweitert)",
 };
 
-const fetcher = (url: string) => fetch(url).then(r => r.json());
+const fetcher = async (url: string) => {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+};
 
 export default function Settings() {
   const { data: envEntries, mutate: mutateEnv } =
@@ -103,7 +107,7 @@ export default function Settings() {
     setRestartBanner(false);
   };
 
-  if (!envEntries) return <div className="flex justify-center py-20"><Spinner size={32} /></div>;
+  if (!envEntries || !Array.isArray(envEntries)) return <div className="flex justify-center py-20"><Spinner size={32} /></div>;
 
   // Group by section
   const sections = Object.entries(

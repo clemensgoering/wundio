@@ -9,7 +9,7 @@ export default function Dashboard() {
 
   if (!status) return <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>;
 
-  const features = status.features;
+  const features = status?.features ?? {};
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -19,7 +19,7 @@ export default function Dashboard() {
       </div>
 
       {/* Setup banner */}
-      {!status.setup_complete && (
+      {!status?.setup_complete && (
         <div className="border border-amber/30 bg-amber/5 rounded-2xl px-6 py-4 flex items-center gap-4">
           <span className="text-2xl">⚙️</span>
           <div>
@@ -56,16 +56,16 @@ export default function Dashboard() {
 
       {/* Hardware info */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <InfoTile label="Modell"    value={status.hardware.model.replace("Raspberry Pi ", "Pi ") || "—"} />
-        <InfoTile label="RAM"       value={`${status.hardware.ram_mb} MB`} />
-        <InfoTile label="Pi Gen"    value={status.hardware.pi_generation ? `Gen ${status.hardware.pi_generation}` : "?"} />
+        <InfoTile label="Modell"    value={(status?.hardware?.model ?? "").replace("Raspberry Pi ", "Pi ") || "—"} />
+        <InfoTile label="RAM"       value={`${status?.hardware?.ram_mb ?? "?"} MB`} />
+        <InfoTile label="Pi Gen"    value={status?.hardware?.pi_generation ? `Gen ${status?.hardware?.pi_generation}` : "?"} />
       </div>
 
       {/* Feature flags */}
       <Card className="p-6">
         <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-4">Features</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {Object.entries(features).map(([key, enabled]) => (
+          {Object.entries(features ?? {}).map(([key, enabled]) => (
             <div key={key} className="flex items-center gap-2.5">
               <span className={`w-2 h-2 rounded-full ${enabled ? "bg-teal" : "bg-surface border border-border"}`} />
               <span className={`text-sm ${enabled ? "text-paper/70" : "text-muted/50"}`}>

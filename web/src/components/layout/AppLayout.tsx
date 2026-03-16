@@ -54,14 +54,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="p-3 border-t border-border">
             <div className="bg-surface rounded-xl p-3 space-y-1.5">
               <p className="text-[10px] font-display font-semibold text-muted uppercase tracking-wider">System</p>
-              <p className="text-xs text-paper/60 truncate">{status.hardware.model}</p>
+              <p className="text-xs text-paper/60 truncate">{status?.hardware?.model}</p>
               <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${status.setup_complete ? "bg-teal" : "bg-amber animate-pulse"}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${status?.setup_complete ? "bg-teal" : "bg-amber animate-pulse"}`} />
                 <span className="text-xs text-muted">
-                  {status.setup_complete ? "Bereit" : "Setup ausstehend"}
+                  {status?.setup_complete ? "Bereit" : "Setup ausstehend"}
                 </span>
               </div>
-              <p className="text-[10px] text-muted/50">v{status.version}</p>
+              <p className="text-[10px] text-muted/50">v{status?.version}</p>
             </div>
           </div>
         )}

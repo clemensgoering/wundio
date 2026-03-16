@@ -37,7 +37,7 @@ export interface SystemStatus {
   version:        string;
   setup_complete: boolean;
   hotspot_active: boolean;
-  hardware: {
+  hardware?: {
     model:          string;
     ram_mb:         number;
     pi_generation:  number;

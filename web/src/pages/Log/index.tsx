@@ -4,10 +4,10 @@ import { Card, Spinner } from "@/components/ui";
 
 interface LogEvent {
   id:        number;
-  level:     string;
-  source:    string;
+  level?:    string | null;
+  source?:   string | null;
   message:   string;
-  timestamp: string;
+  timestamp?: string | null;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -36,12 +36,17 @@ const LEVEL_DOT: Record<string, string> = {
 
 const SOURCES = ["", "rfid", "buttons", "system", "wifi", "spotify", "voice"];
 
-function formatTime(iso: string): { time: string; date: string } {
-  const d = new Date(iso);
-  return {
-    time: d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-    date: d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }),
-  };
+function formatTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "—";
+    const date = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return `${date} · ${time}`;
+  } catch {
+    return "—";
+  }
 }
 
 export default function LogPage() {
@@ -49,20 +54,27 @@ export default function LogPage() {
   const [limit,  setLimit]  = useState(100);
 
   const url = `/api/system/events?limit=${limit}${source ? `&source=${source}` : ""}`;
-  const { data: events, isLoading, mutate } = useSWR<LogEvent[]>(
+
+  const { data, error, isLoading, mutate } = useSWR<LogEvent[]>(
     url,
-    (u: string) => fetch(u).then(r => r.json()),
-    { refreshInterval: 5000 }   // auto-refresh every 5s
+    async (u: string) => {
+      const r = await fetch(u);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const json = await r.json();
+      if (!Array.isArray(json)) throw new Error("Unexpected response");
+      return json;
+    },
+    { refreshInterval: 5000, shouldRetryOnError: true }
   );
+
+  const events = Array.isArray(data) ? data : [];
 
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display font-extrabold text-3xl text-paper mb-1">Aktivitäten</h1>
-          <p className="text-muted text-sm">
-            Alle Ereignisse auf Wundio – wird automatisch aktualisiert.
-          </p>
+          <p className="text-muted text-sm">Alle Ereignisse – automatisch aktualisiert.</p>
         </div>
         <button
           onClick={() => mutate()}
@@ -90,41 +102,50 @@ export default function LogPage() {
         ))}
       </div>
 
-      {/* Events list */}
-      {isLoading ? (
+      {/* Error state */}
+      {error && (
+        <Card className="p-6 text-center">
+          <p className="text-muted text-sm mb-2">Aktivitäten konnten nicht geladen werden.</p>
+          <p className="text-xs font-mono text-muted/50">{error.message}</p>
+        </Card>
+      )}
+
+      {/* Loading */}
+      {isLoading && !data && (
         <div className="flex justify-center py-16"><Spinner size={32} /></div>
-      ) : !events || events.length === 0 ? (
+      )}
+
+      {/* Empty */}
+      {!isLoading && !error && events.length === 0 && (
         <Card className="p-10 text-center">
           <p className="text-muted text-sm">Noch keine Aktivitäten vorhanden.</p>
         </Card>
-      ) : (
+      )}
+
+      {/* Events */}
+      {events.length > 0 && (
         <div className="space-y-1.5">
           {events.map(e => {
-            const { time, date } = formatTime(e.timestamp);
+            const level  = e.level  ?? "INFO";
+            const source = e.source ?? "system";
             return (
               <div key={e.id}
                    className="flex items-start gap-3 px-4 py-3 rounded-2xl
                               bg-surface border border-border/50
                               hover:border-border transition-colors">
-
-                {/* Level dot */}
                 <div className="mt-1.5 flex-shrink-0">
-                  <div className={`w-2 h-2 rounded-full ${LEVEL_DOT[e.level] ?? "bg-muted"}`} />
+                  <div className={`w-2 h-2 rounded-full ${LEVEL_DOT[level] ?? "bg-muted"}`} />
                 </div>
-
-                {/* Message */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-paper/85 leading-snug">{e.message}</p>
                 </div>
-
-                {/* Right: source badge + time */}
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
                   <span className={`text-[10px] font-display font-bold px-2 py-0.5 rounded-full
-                                   ${SOURCE_COLORS[e.source] ?? "bg-border text-muted"}`}>
-                    {SOURCE_LABELS[e.source] ?? e.source}
+                                   ${SOURCE_COLORS[source] ?? "bg-border text-muted"}`}>
+                    {SOURCE_LABELS[source] ?? source}
                   </span>
                   <span className="text-[10px] font-mono text-muted whitespace-nowrap">
-                    {date} · {time}
+                    {formatTime(e.timestamp)}
                   </span>
                 </div>
               </div>
@@ -134,7 +155,7 @@ export default function LogPage() {
       )}
 
       {/* Load more */}
-      {events && events.length >= limit && (
+      {events.length >= limit && (
         <div className="text-center">
           <button
             onClick={() => setLimit(l => l + 100)}
