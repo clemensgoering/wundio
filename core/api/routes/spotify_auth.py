@@ -21,7 +21,7 @@ import base64
 import json
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 from config import get_settings
@@ -39,10 +39,19 @@ SPOTIFY_SCOPES = " ".join([
 ])
 
 
-def _get_redirect_uri() -> str:
-    """Build the callback URI based on current config."""
-    cfg = get_settings()
-    return f"http://wundio.local:{cfg.port}/api/spotify/callback"
+def _get_redirect_uri(request) -> str:
+    """
+    Build callback URI from the incoming request host.
+
+    Spotify allows http:// only for localhost and IP addresses.
+    Using the request host ensures the URI matches what the user registered
+    in the Spotify Developer Dashboard.
+
+    Register in Spotify Dashboard: http://<Pi-IP>:8000/api/spotify/callback
+    Example: http://192.168.1.50:8000/api/spotify/callback
+    """
+    host = request.headers.get("host", f"localhost:{request.url.port or 8000}")
+    return f"http://{host}/api/spotify/callback"
 
 
 def _write_env_key(key: str, value: str) -> None:
@@ -68,7 +77,7 @@ def _write_env_key(key: str, value: str) -> None:
 
 
 @router.get("/auth/start")
-async def spotify_auth_start():
+async def spotify_auth_start(request: Request):
     """
     Redirect user to Spotify authorization page.
     Requires SPOTIFY_CLIENT_ID to be set in wundio.env.
@@ -83,10 +92,11 @@ async def spotify_auth_start():
             </body></html>
         """, status_code=400)
 
+    redirect_uri = _get_redirect_uri(request)
     params = urllib.parse.urlencode({
         "client_id":     cfg.spotify_client_id,
         "response_type": "code",
-        "redirect_uri":  _get_redirect_uri(),
+        "redirect_uri":  redirect_uri,
         "scope":         SPOTIFY_SCOPES,
         "show_dialog":   "true",
     })
@@ -96,7 +106,7 @@ async def spotify_auth_start():
 
 
 @router.get("/callback")
-async def spotify_callback(code: str = "", error: str = ""):
+async def spotify_callback(request: Request, code: str = "", error: str = ""):
     """
     Spotify redirects here after user authorization.
     Exchanges authorization code for access + refresh tokens.
@@ -132,7 +142,7 @@ async def spotify_callback(code: str = "", error: str = ""):
             data=urllib.parse.urlencode({
                 "grant_type":   "authorization_code",
                 "code":         code,
-                "redirect_uri": _get_redirect_uri(),
+                "redirect_uri": _get_redirect_uri(request),
             }).encode(),
             headers={
                 "Authorization": f"Basic {creds}",
