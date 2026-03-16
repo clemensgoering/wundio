@@ -8,15 +8,7 @@ User=wundio
 Group=wundio
 WorkingDirectory=/opt/wundio/core
 EnvironmentFile=/etc/wundio/wundio.env
-ExecStart=/opt/wundio/venv/bin/python -c "
-import asyncio
-from services.rfid import get_rfid_service
-async def main():
-    s = get_rfid_service()
-    s.setup()
-    await s.run()
-asyncio.run(main())
-"
+ExecStart=/opt/wundio/venv/bin/python /opt/wundio/scripts/run-rfid.py
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal
