@@ -78,7 +78,8 @@ async def complete_setup():
 @router.post("/restart")
 async def restart_service():
     """Restart wundio-core service to apply config changes."""
-    import subprocess, asyncio
+    import subprocess
+    import asyncio
     log_event("system", "Neustart des Dienstes angefordert")
     # Delayed restart so the response can be sent first
     async def _restart():

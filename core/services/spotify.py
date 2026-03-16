@@ -175,7 +175,9 @@ class SpotifyService:
                 return False
 
             # Get fresh access token
-            import urllib.request, urllib.parse, base64
+            import urllib.request
+            import urllib.parse
+            import base64
             creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             token_req = urllib.request.Request(
                 "https://accounts.spotify.com/api/token",
