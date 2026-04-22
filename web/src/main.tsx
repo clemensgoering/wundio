@@ -8,6 +8,7 @@ import RfidPage  from "@/pages/RFID";
 import Playback  from "@/pages/Playback";
 import Settings  from "@/pages/Settings";
 import "./index.css";
+import { Analytics } from "@vercel/analytics/next"
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import LogPage from "./pages/Log";
 
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>}  />
           <Route path="/log"      element={<ErrorBoundary><LogPage /></ErrorBoundary>}   />
         </Routes>
+        <Analytics />
       </AppLayout>
     </BrowserRouter>
   </React.StrictMode>
