@@ -1,7 +1,7 @@
 import React from "react";
 
 // ── Button ────────────────────────────────────────────────────────────────────
-type BtnVariant = "primary" | "secondary" | "ghost" | "danger";
+type BtnVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 
 interface BtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: BtnVariant;
@@ -14,6 +14,7 @@ const variantCls: Record<BtnVariant, string> = {
   secondary: "bg-surface border border-border text-paper/70 hover:border-paper/20 hover:text-paper",
   ghost:     "text-muted hover:text-paper hover:bg-surface",
   danger:    "bg-red-900/40 border border-red-700/40 text-red-400 hover:bg-red-900/60",
+  success:   "bg-green-900/40 border border-green-700/40 text-green-400 hover:bg-green-900/60",
 };
 
 export function Button({ variant = "primary", size = "md", loading, children, className = "", disabled, ...props }: BtnProps) {

@@ -1,19 +1,17 @@
 """
-Wundio – Spotify OAuth Flow
-Implements Authorization Code Flow for local network devices.
+Wundio – Spotify OAuth Flow (Decentralized)
 
-Redirect URI: http://wundio.local:8000/api/spotify/callback
-              (add this URL in your Spotify Developer App settings)
+Every user creates their own Spotify Developer App.
+No central Wundio app → no single point of failure.
 
 Flow:
-  1. User enters Client ID + Secret in Settings
-  2. User clicks "Mit Spotify verbinden"
-  3. GET /api/spotify/auth/start  -> redirect to Spotify authorization page
-  4. User authorizes in browser
-  5. Spotify redirects to /api/spotify/callback?code=...
-  6. FastAPI exchanges code for tokens
-  7. Refresh token is stored in wundio.env
-  8. User is redirected to /settings with success message
+  1. User visits wundio.dev/docs/spotify-setup (guided setup)
+  2. Creates Spotify App with redirect URI: http://{BOX_IP}:8000/api/spotify/callback
+  3. Scans QR code → GET /api/spotify/setup?client_id=...&secret=...
+  4. Credentials stored in wundio.env
+  5. User clicks "Mit Spotify verbinden" in Settings
+  6. OAuth flow via /api/spotify/auth/start → /callback
+  7. Refresh token stored
 """
 import urllib.parse
 import urllib.request
@@ -21,7 +19,7 @@ import base64
 import json
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 from config import get_settings
@@ -39,15 +37,27 @@ SPOTIFY_SCOPES = " ".join([
 ])
 
 
-RELAY_REDIRECT_URI = "https://wundio.dev/spotify-callback"
-# wundio.dev/spotify-callback receives the code from Spotify and relays
-# it back to the local Pi via the 'state' parameter (which contains the Pi IP).
+def _get_local_ip() -> str:
+    """Get wlan0 IP for building redirect URI."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "addr", "show", "wlan0"],
+            capture_output=True, text=True, timeout=2
+        )
+        for line in result.stdout.splitlines():
+            if "inet " in line:
+                return line.split()[1].split('/')[0]
+    except Exception:
+        pass
+    return "192.168.1.1"
 
 
-def _get_local_origin(request) -> str:
-    """Return the local Pi origin, e.g. http://192.168.1.50:8000"""
-    host = request.headers.get("host", f"localhost:{request.url.port or 8000}")
-    return f"http://{host}"
+def _get_redirect_uri() -> str:
+    """Build callback URI using actual local IP."""
+    cfg = get_settings()
+    local_ip = _get_local_ip()
+    return f"http://{local_ip}:{cfg.port}/api/spotify/callback"
 
 
 def _write_env_key(key: str, value: str) -> None:
@@ -55,7 +65,7 @@ def _write_env_key(key: str, value: str) -> None:
     from pathlib import Path
     env_file = Path("/etc/wundio/wundio.env")
     if not env_file.exists():
-        logger.warning("wundio.env not found – cannot persist token")
+        logger.warning("wundio.env not found – cannot persist")
         return
     lines = env_file.read_text().splitlines()
     found = False
@@ -72,33 +82,50 @@ def _write_env_key(key: str, value: str) -> None:
     env_file.write_text("\n".join(new_lines) + "\n")
 
 
+@router.get("/setup")
+async def spotify_setup(
+    client_id: str = Query(..., min_length=10),
+    secret: str = Query(..., min_length=10)
+):
+    """
+    QR-Scan endpoint: stores Spotify credentials directly.
+    Called from wundio.dev/docs/spotify-setup after user creates their app.
+    """
+    _write_env_key("SPOTIFY_CLIENT_ID", client_id)
+    _write_env_key("SPOTIFY_CLIENT_SECRET", secret)
+    
+    # Clear cache so next request picks up new values
+    from config import get_settings as _gs
+    _gs.cache_clear()
+    
+    log_event("spotify", "Client-ID und Secret gespeichert via QR-Setup")
+    logger.info("Spotify credentials saved via /api/spotify/setup")
+    
+    return HTMLResponse(_success_page(
+        title="✓ Credentials gespeichert",
+        message="Client-ID und Secret wurden erfolgreich auf der Box gespeichert.",
+        instruction="Du kannst jetzt in den Einstellungen auf 'Mit Spotify verbinden' klicken.",
+    ))
+
+
 @router.get("/auth/start")
-async def spotify_auth_start(request: Request):
+async def spotify_auth_start():
     """
     Redirect user to Spotify authorization page.
-    Requires SPOTIFY_CLIENT_ID to be set in wundio.env.
+    Requires SPOTIFY_CLIENT_ID to be set (via /spotify/setup or manually).
     """
     cfg = get_settings()
     if not cfg.spotify_client_id:
-        return HTMLResponse("""
-            <html><body style="font-family:sans-serif;padding:2rem;background:#1A1814;color:#fff">
-            <h2 style="color:#F59C1A">Client ID fehlt</h2>
-            <p>Bitte zuerst die <strong>Client ID</strong> in den Einstellungen eintragen.</p>
-            <a href="/settings" style="color:#4ECDC4">Zurueck zu Einstellungen</a>
-            </body></html>
-        """, status_code=400)
-
-    import base64 as _b64
-    local_origin = _get_local_origin(request)
-    # Encode Pi origin in state so wundio.dev relay knows where to send the code
-    state = _b64.urlsafe_b64encode(local_origin.encode()).decode()
+        return HTMLResponse(_error_page(
+            title="Client ID fehlt",
+            message="Bitte zuerst die Spotify App via QR-Code einrichten oder Client ID manuell in Einstellungen eintragen.",
+        ), status_code=400)
 
     params = urllib.parse.urlencode({
         "client_id":     cfg.spotify_client_id,
         "response_type": "code",
-        "redirect_uri":  RELAY_REDIRECT_URI,
+        "redirect_uri":  _get_redirect_uri(),
         "scope":         SPOTIFY_SCOPES,
-        "state":         state,
         "show_dialog":   "true",
     })
     auth_url = f"https://accounts.spotify.com/authorize?{params}"
@@ -107,29 +134,29 @@ async def spotify_auth_start(request: Request):
 
 
 @router.get("/callback")
-async def spotify_callback(request: Request, code: str = "", error: str = ""):
+async def spotify_callback(code: str = "", error: str = ""):
     """
     Spotify redirects here after user authorization.
     Exchanges authorization code for access + refresh tokens.
     """
     if error:
         log_event("spotify", f"OAuth abgebrochen: {error}", level="WARN")
-        return HTMLResponse(_result_page(
-            success=False,
-            message=f"Autorisierung abgebrochen: {error}"
+        return HTMLResponse(_error_page(
+            title="Autorisierung abgebrochen",
+            message=f"Fehler: {error}",
         ))
 
     if not code:
-        return HTMLResponse(_result_page(
-            success=False,
-            message="Kein Autorisierungscode erhalten."
+        return HTMLResponse(_error_page(
+            title="Kein Autorisierungscode",
+            message="Spotify hat keinen Code zurückgegeben.",
         ))
 
     cfg = get_settings()
     if not cfg.spotify_client_id or not cfg.spotify_client_secret:
-        return HTMLResponse(_result_page(
-            success=False,
-            message="Client ID oder Secret fehlt in den Einstellungen."
+        return HTMLResponse(_error_page(
+            title="Fehlende Credentials",
+            message="Client ID oder Secret fehlt in den Einstellungen.",
         ))
 
     # Exchange code for tokens
@@ -143,7 +170,7 @@ async def spotify_callback(request: Request, code: str = "", error: str = ""):
             data=urllib.parse.urlencode({
                 "grant_type":   "authorization_code",
                 "code":         code,
-                "redirect_uri": RELAY_REDIRECT_URI,
+                "redirect_uri": _get_redirect_uri(),
             }).encode(),
             headers={
                 "Authorization": f"Basic {creds}",
@@ -156,47 +183,45 @@ async def spotify_callback(request: Request, code: str = "", error: str = ""):
 
         refresh_token = token_data.get("refresh_token", "")
 
-
         if not refresh_token:
-            return HTMLResponse(_result_page(
-                success=False,
-                message="Kein Refresh Token erhalten. Bitte erneut versuchen."
+            return HTMLResponse(_error_page(
+                title="Token-Fehler",
+                message="Kein Refresh Token erhalten. Bitte erneut versuchen.",
             ))
 
-        # Persist refresh token in wundio.env
+        # Persist refresh token
         _write_env_key("SPOTIFY_REFRESH_TOKEN", refresh_token)
 
-        # Also invalidate settings cache so next request picks up new token
+        # Invalidate cache
         from config import get_settings as _gs
         _gs.cache_clear()
 
         log_event("spotify", "Spotify erfolgreich autorisiert – Refresh Token gespeichert")
         logger.info("Spotify OAuth complete – refresh token stored")
 
-        return HTMLResponse(_result_page(
-            success=True,
-            message="Spotify erfolgreich verbunden! Refresh Token wurde gespeichert."
+        return HTMLResponse(_success_page(
+            title="✓ Spotify verbunden",
+            message="Dein Spotify-Account wurde erfolgreich mit Wundio verknüpft.",
+            instruction="Refresh Token wurde gespeichert. Du kannst jetzt RFID-Tags Playlists zuweisen.",
         ))
 
     except Exception as e:
         logger.error(f"Spotify token exchange failed: {e}")
         log_event("spotify", f"OAuth Fehler: {e}", level="ERROR")
-        return HTMLResponse(_result_page(
-            success=False,
-            message=f"Fehler beim Token-Austausch: {e}"
+        return HTMLResponse(_error_page(
+            title="Verbindung fehlgeschlagen",
+            message=f"Fehler beim Token-Austausch: {e}",
         ))
 
 
-def _result_page(success: bool, message: str) -> str:
-    color   = "#22C55E" if success else "#FF6B6B"
-    heading = "Verbindung erfolgreich" if success else "Verbindung fehlgeschlagen"
+def _success_page(title: str, message: str, instruction: str = "") -> str:
     return f"""
     <!DOCTYPE html>
     <html lang="de">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Spotify – {heading}</title>
+      <title>Spotify – {title}</title>
       <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
@@ -220,11 +245,74 @@ def _result_page(success: bool, message: str) -> str:
         }}
         .dot {{
           width: 3rem; height: 3rem;
-          background: {color};
+          background: #22C55E;
           border-radius: 50%;
           margin: 0 auto 1.5rem;
         }}
-        h1 {{ font-size: 1.4rem; color: {color}; margin-bottom: 0.75rem; }}
+        h1 {{ font-size: 1.4rem; color: #22C55E; margin-bottom: 0.75rem; }}
+        p  {{ font-size: 0.95rem; color: #9E8E7A; line-height: 1.6; margin-bottom: 1.5rem; }}
+        .note {{ font-size: 0.8rem; color: #6B5E50; margin-top: 1rem; }}
+        a  {{
+          display: inline-block;
+          background: #F59C1A;
+          color: #fff;
+          text-decoration: none;
+          padding: 0.7rem 1.8rem;
+          border-radius: 0.75rem;
+          font-weight: 600;
+          font-size: 0.9rem;
+        }}
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="dot"></div>
+        <h1>{title}</h1>
+        <p>{message}</p>
+        {f'<p class="note">{instruction}</p>' if instruction else ''}
+        <a href="/settings">Zurück zu Einstellungen</a>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def _error_page(title: str, message: str) -> str:
+    return f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Spotify – {title}</title>
+      <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+          font-family: -apple-system, sans-serif;
+          background: #1A1814;
+          color: #F5EFE3;
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 2rem;
+        }}
+        .card {{
+          background: #2A2420;
+          border: 1px solid #3D3630;
+          border-radius: 1.5rem;
+          padding: 2.5rem;
+          max-width: 480px;
+          width: 100%;
+          text-align: center;
+        }}
+        .dot {{
+          width: 3rem; height: 3rem;
+          background: #FF6B6B;
+          border-radius: 50%;
+          margin: 0 auto 1.5rem;
+        }}
+        h1 {{ font-size: 1.4rem; color: #FF6B6B; margin-bottom: 0.75rem; }}
         p  {{ font-size: 0.95rem; color: #9E8E7A; line-height: 1.6; margin-bottom: 1.5rem; }}
         a  {{
           display: inline-block;
@@ -236,16 +324,14 @@ def _result_page(success: bool, message: str) -> str:
           font-weight: 600;
           font-size: 0.9rem;
         }}
-        {"" if not success else ".note { font-size: 0.8rem; color: #6B5E50; margin-top: 1rem; }"}
       </style>
     </head>
     <body>
       <div class="card">
         <div class="dot"></div>
-        <h1>{heading}</h1>
+        <h1>{title}</h1>
         <p>{message}</p>
-        {"<p class='note'>Du kannst dieses Fenster schliessen oder zur App zurueckkehren.</p>" if success else ""}
-        <a href="/settings">Zurueck zu Einstellungen</a>
+        <a href="/settings">Zurück zu Einstellungen</a>
       </div>
     </body>
     </html>

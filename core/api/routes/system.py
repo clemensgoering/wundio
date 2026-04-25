@@ -16,8 +16,25 @@ class SystemStatus(BaseModel):
     version: str
     setup_complete: bool
     hotspot_active: bool
+    local_ip: str
     hardware: dict
     features: dict
+
+
+def _get_local_ip() -> str:
+    """Get wlan0 IP address for displaying in UI."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "addr", "show", "wlan0"],
+            capture_output=True, text=True, timeout=2
+        )
+        for line in result.stdout.splitlines():
+            if "inet " in line:
+                return line.split()[1].split('/')[0]
+    except Exception:
+        pass
+    return "192.168.1.XXX"
 
 
 @router.get("/status", response_model=SystemStatus)
@@ -30,6 +47,7 @@ async def get_status():
         version=cfg.app_version,
         setup_complete=get_setting("setup_complete") == "true",
         hotspot_active=get_setting("hotspot_active") == "true",
+        local_ip=_get_local_ip(),
         hardware={
             "model": profile_dict["model"],
             "ram_mb": profile_dict["ram_mb"],

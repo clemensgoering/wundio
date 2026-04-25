@@ -37,6 +37,7 @@ export interface SystemStatus {
   version:        string;
   setup_complete: boolean;
   hotspot_active: boolean;
+  local_ip:       string;
   hardware?: {
     model:          string;
     ram_mb:         number;
