@@ -239,4 +239,5 @@ class TestEndToEndRfidUserFlow:
             s.commit()
             action = resolve_rfid_action(s, "PLAY001")
 
-        assert action == {"type": "playlist", "spotify_uri": uri}
+        assert action == {"type": "playlist", "spotify_uri": uri, "label": "Today's Hits"}
+

@@ -312,7 +312,7 @@ class TestRfidResolution:
             s.add(RfidTag(uid="CCDD", tag_type="playlist", spotify_uri=uri, label="Hits"))
             s.commit()
             r = resolve_rfid_action(s, "CCDD")
-        assert r == {"type": "playlist", "spotify_uri": uri}
+        assert r == {"type": "playlist", "spotify_uri": uri, "label": "Hits"}
 
     def test_action_tag(self, tmp_db):
         from database import get_engine, RfidTag
