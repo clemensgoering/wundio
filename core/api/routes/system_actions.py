@@ -167,7 +167,7 @@ async def _stream_action(
 
         if exit_code == 0:
             log_event("system", f"Aktion erfolgreich: {label}")
-            yield sse("done", f"exit_code=0")
+            yield sse("done", "exit_code=0")
         else:
             log_event("system", f"Aktion fehlgeschlagen ({exit_code}): {label}", level="ERROR")
             yield sse("error", f"Prozess beendet mit Code {exit_code}")
