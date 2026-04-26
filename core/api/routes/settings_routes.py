@@ -49,6 +49,13 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "spotify_api",
         "secret":      True,
     },
+    "SPOTIFY_REDIRECT_URI": {
+        "label":       "Redirect URI",
+        "description": "Muss exakt mit dem Eintrag in der Spotify Developer App übereinstimmen",
+        "type":        "text",
+        "section":     "spotify_api",
+        "secret":      False,
+    },
     # SPOTIFY_REFRESH_TOKEN is intentionally excluded from the UI schema.
     # It is written automatically by the OAuth callback (/api/spotify/callback).
     # ── Display ────────────────────────────────────────────────────────────

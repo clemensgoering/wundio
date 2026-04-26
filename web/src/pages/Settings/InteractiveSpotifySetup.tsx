@@ -66,6 +66,17 @@ export default function InteractiveSpotifySetup({
     return true;
   };
 
+  const confirmIp = async () => {
+    if (!validateIp(localIp)) return;
+    // Persist redirect URI so backend always uses the same value
+    await fetch("/api/settings/env/SPOTIFY_REDIRECT_URI", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: `http://${localIp}:8000/api/spotify/callback` }),
+    });
+    setCurrentStep(2);
+  };
+
   const saveCredentials = async () => {
     setSaveError("");
     if (!clientId.trim() || !clientSecret.trim()) {
@@ -139,7 +150,7 @@ export default function InteractiveSpotifySetup({
                 {redirectUri}
               </code>
             </div>
-            <Button onClick={() => { if (validateIp(localIp)) setCurrentStep(2); }} className="w-full">
+            <Button onClick={() => { confirmIp() }} className="w-full">
               Weiter →
             </Button>
           </div>

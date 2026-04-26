@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     spotify_client_id:     str = ""
     spotify_client_secret: str = ""
     spotify_refresh_token: str = ""
+    spotify_redirect_uri:  str = ""
 
     # ── WiFi Hotspot (first-run AP) ───────────────────────────────────
     hotspot_ssid: str = "Wundio-Setup"

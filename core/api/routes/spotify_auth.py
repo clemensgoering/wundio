@@ -1,26 +1,21 @@
 """
 Wundio – Spotify OAuth Flow (Decentralized)
 
-Every user creates their own Spotify Developer App.
-No central Wundio app → no single point of failure.
+Redirect URI resolution (priority order):
+  1. SPOTIFY_REDIRECT_URI in wundio.env  ← set by InteractiveSpotifySetup Step 1
+  2. Auto-detected IP (wlan0 → eth0 → 127.0.0.1)
 
-Flow:
-  1. User visits Settings page
-  2. Enters Client ID + Secret (saved to wundio.env via /api/settings/env/*)
-  3. Clicks "Mit Spotify verbinden"
-  4. /api/spotify/auth/start builds redirect URI from request host, stores it in
-     OAuth state parameter (base64-encoded) to survive DHCP changes
-  5. Spotify redirects to /api/spotify/callback?code=...&state=...
-  6. Callback decodes redirect URI from state for token exchange
-  7. Refresh token stored → redirect to /settings
+The URI is embedded in the OAuth state so auth/start and callback
+always use the same value regardless of how the Pi is accessed.
 """
 import base64
 import json
 import logging
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 from config import get_settings
@@ -37,40 +32,75 @@ SPOTIFY_SCOPES = " ".join([
     "playlist-read-collaborative",
 ])
 
+ENV_FILE = Path("/etc/wundio/wundio.env")
 
-def _get_redirect_uri(request: Request) -> str:
+
+def _read_env_key(key: str) -> str:
+    """Read a single key directly from wundio.env (bypasses pydantic cache)."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def _detect_local_ip() -> str:
+    """Try wlan0, then eth0, then localhost."""
+    import subprocess
+    for iface in ("wlan0", "eth0"):
+        try:
+            out = subprocess.run(
+                ["ip", "-4", "addr", "show", iface],
+                capture_output=True, text=True, timeout=2,
+            ).stdout
+            for line in out.splitlines():
+                if "inet " in line:
+                    return line.split()[1].split("/")[0]
+        except Exception:
+            pass
+    return "127.0.0.1"
+
+
+def _get_redirect_uri() -> str:
     """
-    Build callback URI from the incoming request's host.
-    Using request.base_url ensures consistency regardless of whether
-    the Pi is on wlan0/eth0 or what IP DHCP assigned.
+    Returns the canonical redirect URI.
+    Reads directly from wundio.env so it always reflects what the user
+    entered in the Spotify Developer App – independent of pydantic cache
+    or how the browser accesses the Pi (IP vs wundio.local).
     """
-    base = str(request.base_url).rstrip("/")
-    return f"{base}/api/spotify/callback"
+    stored = _read_env_key("SPOTIFY_REDIRECT_URI").strip()
+    if stored:
+        logger.debug("Using stored redirect URI: %s", stored)
+        return stored
+    cfg = get_settings()
+    ip = _detect_local_ip()
+    fallback = f"http://{ip}:{cfg.port}/api/spotify/callback"
+    logger.warning("SPOTIFY_REDIRECT_URI not set – falling back to %s", fallback)
+    return fallback
 
 
 def _encode_state(redirect_uri: str) -> str:
-    """Encode redirect URI into OAuth state so callback uses same value."""
-    payload = json.dumps({"redirect_uri": redirect_uri})
-    return base64.urlsafe_b64encode(payload.encode()).decode()
+    return base64.urlsafe_b64encode(
+        json.dumps({"redirect_uri": redirect_uri}).encode()
+    ).decode()
 
 
 def _decode_state(state: str) -> str | None:
-    """Decode redirect URI from OAuth state. Returns None on failure."""
     try:
-        payload = json.loads(base64.urlsafe_b64decode(state.encode()))
-        return payload.get("redirect_uri")
+        data = json.loads(base64.urlsafe_b64decode(state.encode()))
+        uri = data.get("redirect_uri")
+        return uri if isinstance(uri, str) and uri else None
     except Exception:
         return None
 
 
 def _write_env_key(key: str, value: str) -> None:
-    """Write a single key to wundio.env."""
-    from pathlib import Path
-    env_file = Path("/etc/wundio/wundio.env")
-    if not env_file.exists():
-        logger.warning("wundio.env not found – cannot persist")
+    if not ENV_FILE.exists():
+        logger.warning("wundio.env not found – cannot persist %s", key)
         return
-    lines = env_file.read_text().splitlines()
+    lines = ENV_FILE.read_text().splitlines()
     found = False
     new_lines = []
     for line in lines:
@@ -81,41 +111,35 @@ def _write_env_key(key: str, value: str) -> None:
             new_lines.append(line)
     if not found:
         new_lines.append(f"{key}={value}")
-    env_file.write_text("\n".join(new_lines) + "\n")
+    ENV_FILE.write_text("\n".join(new_lines) + "\n")
 
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/setup")
 async def spotify_setup(
     client_id: str = Query(..., min_length=10),
     secret: str = Query(..., min_length=10),
 ):
-    """
-    QR-Scan endpoint: stores Spotify credentials directly.
-    Called from wundio.dev/docs/spotify-setup after user creates their app.
-    """
+    """QR-Scan endpoint: stores Spotify credentials directly."""
     _write_env_key("SPOTIFY_CLIENT_ID", client_id)
     _write_env_key("SPOTIFY_CLIENT_SECRET", secret)
-
     from config import get_settings as _gs
     _gs.cache_clear()
-
     log_event("spotify", "Client-ID und Secret gespeichert via QR-Setup")
-    logger.info("Spotify credentials saved via /api/spotify/setup")
-
     return HTMLResponse(_success_page(
-        title="✓ Credentials gespeichert",
-        message="Client-ID und Secret wurden erfolgreich auf der Box gespeichert.",
+        title="Credentials gespeichert",
+        message="Client-ID und Secret wurden gespeichert.",
         instruction="Du kannst jetzt in den Einstellungen auf 'Mit Spotify verbinden' klicken.",
-        redirect_to="/settings",
     ))
 
 
 @router.get("/auth/start")
-async def spotify_auth_start(request: Request):
+async def spotify_auth_start():
     """
-    Redirect user to Spotify authorization page.
-    Encodes the redirect URI into the OAuth state to ensure auth/start and
-    callback always use the same URI, even if IP changes between requests.
+    Redirect to Spotify authorization page.
+    Uses SPOTIFY_REDIRECT_URI from wundio.env – set by the UI setup guide
+    when the user confirms their IP in Step 1.
     """
     from config import get_settings as _gs
     _gs.cache_clear()
@@ -125,11 +149,11 @@ async def spotify_auth_start(request: Request):
         return HTMLResponse(_error_page(
             title="Client ID fehlt",
             message="Bitte zuerst Client ID in den Einstellungen eintragen.",
-            redirect_to="/settings",
         ), status_code=400)
 
-    redirect_uri = _get_redirect_uri(request)
+    redirect_uri = _get_redirect_uri()
     state = _encode_state(redirect_uri)
+    logger.info("Spotify auth/start – redirect_uri=%s", redirect_uri)
 
     params = urllib.parse.urlencode({
         "client_id":     cfg.spotify_client_id,
@@ -139,50 +163,36 @@ async def spotify_auth_start(request: Request):
         "state":         state,
         "show_dialog":   "true",
     })
-    auth_url = f"https://accounts.spotify.com/authorize?{params}"
-    logger.info(f"Redirecting to Spotify auth, redirect_uri={redirect_uri}")
-    return RedirectResponse(url=auth_url)
+    return RedirectResponse(url=f"https://accounts.spotify.com/authorize?{params}")
 
 
 @router.get("/callback")
-async def spotify_callback(
-    code: str = "",
-    error: str = "",
-    state: str = "",
-):
-    """
-    Spotify redirects here after user authorization.
-    Decodes redirect URI from state parameter for token exchange.
-    """
+async def spotify_callback(code: str = "", error: str = "", state: str = ""):
+    """Exchange authorization code for tokens."""
     if error:
         log_event("spotify", f"OAuth abgebrochen: {error}", level="WARN")
         return HTMLResponse(_error_page(
             title="Autorisierung abgebrochen",
-            message=f"Fehler: {error}",
-            redirect_to="/settings",
+            message=f"Fehler von Spotify: {error}",
         ))
 
     if not code:
         return HTMLResponse(_error_page(
             title="Kein Autorisierungscode",
             message="Spotify hat keinen Code zurückgegeben.",
-            redirect_to="/settings",
         ))
 
-    # Decode redirect URI from state (must match what was sent to Spotify)
+    # Decode URI from state – must match exactly what was sent to Spotify
     redirect_uri = _decode_state(state) if state else None
     if not redirect_uri:
-        # Fallback: reconstruct from env (legacy / direct URL access)
-        cfg_fallback = get_settings()
-        redirect_uri = f"http://localhost:{cfg_fallback.port}/api/spotify/callback"
-        logger.warning(f"State missing or invalid – falling back to {redirect_uri}")
+        redirect_uri = _get_redirect_uri()
+        logger.warning("State missing/invalid – using env URI: %s", redirect_uri)
 
     cfg = get_settings()
     if not cfg.spotify_client_id or not cfg.spotify_client_secret:
         return HTMLResponse(_error_page(
             title="Fehlende Credentials",
-            message="Client ID oder Secret fehlt in den Einstellungen.",
-            redirect_to="/settings",
+            message="Client ID oder Secret fehlt. Bitte Einstellungen prüfen.",
         ))
 
     try:
@@ -207,50 +217,42 @@ async def spotify_callback(
             token_data = json.loads(resp.read())
 
         refresh_token = token_data.get("refresh_token", "")
-
         if not refresh_token:
             return HTMLResponse(_error_page(
                 title="Token-Fehler",
                 message="Kein Refresh Token erhalten. Bitte erneut versuchen.",
-                redirect_to="/settings",
             ))
 
         _write_env_key("SPOTIFY_REFRESH_TOKEN", refresh_token)
-
         from config import get_settings as _gs
         _gs.cache_clear()
 
         log_event("spotify", "Spotify erfolgreich autorisiert – Refresh Token gespeichert")
-        logger.info("Spotify OAuth complete – refresh token stored")
-
         return HTMLResponse(_success_page(
-            title="✓ Spotify verbunden",
-            message="Dein Spotify-Account wurde erfolgreich mit Wundio verknüpft.",
+            title="Spotify verbunden",
+            message="Dein Spotify-Account wurde erfolgreich verknüpft.",
             instruction="RFID-Tags können jetzt Playlists starten.",
-            redirect_to="/settings",
         ))
 
-    except Exception as e:
-        logger.error(f"Spotify token exchange failed: {e}")
-        log_event("spotify", f"OAuth Fehler: {e}", level="ERROR")
+    except Exception as exc:
+        logger.error("Spotify token exchange failed: %s", exc)
+        log_event("spotify", f"OAuth Fehler: {exc}", level="ERROR")
         return HTMLResponse(_error_page(
             title="Verbindung fehlgeschlagen",
-            message=f"Fehler beim Token-Austausch: {e}",
-            redirect_to="/settings",
+            message=f"Fehler beim Token-Austausch: {exc}",
         ))
 
 
-# ── HTML response helpers ─────────────────────────────────────────────────────
+# ── HTML helpers ──────────────────────────────────────────────────────────────
 
-def _success_page(title: str, message: str, instruction: str = "", redirect_to: str = "/settings") -> str:
-    auto_redirect = f'<meta http-equiv="refresh" content="3;url={redirect_to}">'
+def _success_page(title: str, message: str, instruction: str = "") -> str:
+    instr_html = f'<p class="note">{instruction}</p>' if instruction else ""
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  {auto_redirect}
-  <title>Spotify – {title}</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta http-equiv="refresh" content="3;url=/settings">
+  <title>Spotify - {title}</title>
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
     body{{font-family:-apple-system,sans-serif;background:#1A1814;color:#F5EFE3;
@@ -268,23 +270,22 @@ def _success_page(title: str, message: str, instruction: str = "", redirect_to: 
 <body>
   <div class="card">
     <div class="dot"></div>
-    <h1>{title}</h1>
+    <h1>&#x2713; {title}</h1>
     <p>{message}</p>
-    {f'<p class="note">{instruction}</p>' if instruction else ''}
+    {instr_html}
     <p class="note" style="margin-top:1.5rem">Weiterleitung in 3 Sekunden...</p>
-    <a href="{redirect_to}" style="margin-top:1rem">Zurück zu Einstellungen</a>
+    <a href="/settings" style="margin-top:1rem">Einstellungen</a>
   </div>
 </body>
 </html>"""
 
 
-def _error_page(title: str, message: str, redirect_to: str = "/settings") -> str:
+def _error_page(title: str, message: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spotify – {title}</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Spotify - {title}</title>
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
     body{{font-family:-apple-system,sans-serif;background:#1A1814;color:#F5EFE3;
@@ -303,7 +304,7 @@ def _error_page(title: str, message: str, redirect_to: str = "/settings") -> str
     <div class="dot"></div>
     <h1>{title}</h1>
     <p>{message}</p>
-    <a href="{redirect_to}">Zurück zu Einstellungen</a>
+    <a href="/settings">Einstellungen</a>
   </div>
 </body>
 </html>"""
