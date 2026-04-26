@@ -283,3 +283,20 @@ async def write_setting(key: str, data: SettingWrite):
     set_setting(key, data.value)
     log_event("settings", f"Einstellung gespeichert: {key}")
     return {"ok": True}
+
+# ── Spotify routes ────────────────────────────────────────────────────────────
+
+@router.get("/spotify/status")
+async def spotify_oauth_status():
+    """Check if Spotify OAuth is complete."""
+    current = _read_env()
+    return {
+        "has_client_id": bool(current.get("SPOTIFY_CLIENT_ID", "")),
+        "has_secret": bool(current.get("SPOTIFY_CLIENT_SECRET", "")),
+        "has_refresh_token": bool(current.get("SPOTIFY_REFRESH_TOKEN", "")),
+        "oauth_complete": all([
+            current.get("SPOTIFY_CLIENT_ID"),
+            current.get("SPOTIFY_CLIENT_SECRET"),
+            current.get("SPOTIFY_REFRESH_TOKEN"),
+        ]),
+    }

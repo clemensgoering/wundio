@@ -37,6 +37,7 @@ const fetcher = async (url: string) => {
 export default function SettingsPage() {
   const { data: entries, mutate } = useSWR<EnvEntry[]>("/api/settings/schema", fetcher);
   const { data: wifi } = useSWR<WifiStatus>("/api/wifi/status", fetcher);
+  const { data: spotifyStatus } = useSWR("/api/settings/spotify/status", fetcher);
 
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<Record<string, string>>({});

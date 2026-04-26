@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui";
 
 interface InteractiveSetupProps {
@@ -17,27 +17,23 @@ export default function InteractiveSpotifySetup({
   const [currentStep, setCurrentStep] = useState(1);
   const [localIp, setLocalIp] = useState("");
   const [ipError, setIpError] = useState("");
-  const [isLoadingIp, setIsLoadingIp] = useState(false);
 
   // Auto-detect local IP on mount
-  useState(() => {
-    if (!localIp && !isLoadingIp) {
-      setIsLoadingIp(true);
+  useEffect(() => {
+    if (!localIp) {
       fetch("/api/system/status")
         .then((r) => r.json())
         .then((data) => {
-          if (data.local_ip) {
+          if (data.local_ip && data.local_ip !== "192.168.1.XXX") {
             setLocalIp(data.local_ip);
           }
         })
         .catch(() => {
-          setLocalIp("192.168.178.112"); // Fallback
-        })
-        .finally(() => {
-          setIsLoadingIp(false);
+          // Fallback wenn API nicht erreichbar
+          setLocalIp("");
         });
     }
-  });
+  }, []);
 
   const validateIp = (ip: string): boolean => {
     setIpError("");
@@ -81,7 +77,9 @@ export default function InteractiveSpotifySetup({
     }
   };
 
-  const redirectUri = `http://${localIp}:8000/api/spotify/callback`;
+  const redirectUri = localIp 
+    ? `http://${localIp}:8000/api/spotify/callback`
+    : `http://192.168.1.XXX:8000/api/spotify/callback`;
   const credentialsReady = hasClientId && hasSecret;
 
   return (
@@ -90,7 +88,7 @@ export default function InteractiveSpotifySetup({
         Spotify Web API Einrichtung
       </p>
 
-      {/* Step 1: Spotify Developer App */}
+      {/* Step 1: Confirm IP */}
       <div className="flex gap-3">
         <div
           className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center
@@ -201,7 +199,7 @@ export default function InteractiveSpotifySetup({
                       {redirectUri}
                     </code>
                   </div>
-                  <p className="text-muted/60 text-[10px] mt-1">
+                  <p className="text-red-400 text-[10px] mt-1 font-semibold">
                     ⚠️ Exakt diese URI in der Spotify App eintragen!
                   </p>
                 </div>
