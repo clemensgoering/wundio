@@ -188,8 +188,6 @@ if [[ "$REBUILD_FRONTEND" == true ]]; then
     
     # Copy to static
     info "Kopiere Build nach static/..."
-    rm -rf "${STATIC_DIR:?}"/*
-    cp -r dist/* "$STATIC_DIR/" || error "Copy fehlgeschlagen"
     
     ok "Frontend neu gebaut"
     cd "$REPO_DIR"
