@@ -75,12 +75,6 @@ ACTIONS: dict[str, tuple[str, list[str], bool, int]] = {
         True,
         10,
     ),
-    "uninstall": (
-        "Wundio deinstallieren",
-        ["uninstall.sh", "--yes"],
-        True,
-        120,
-    ),
 }
 
 # Commands that are system binaries (not scripts to resolve)
