@@ -1,116 +1,219 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
-import { Button, Card, Spinner } from "@/components/ui";
-import type { PlaybackState, User } from "@/types/api";
+import { Card, Button, Spinner } from "@/components/ui";
+import type { PlaybackState } from "@/types/api";
 
-const BUTTONS = [
-  { name: "prev",       icon: "⏮", label: "Zurück"    },
-  { name: "play_pause", icon: "⏯", label: "Play/Pause" },
-  { name: "next",       icon: "⏭", label: "Weiter"    },
-] as const;
-
-export default function Playback() {
+export default function PlaybackPage() {
   const { data: state, mutate } = useSWR<PlaybackState>(
-    "playback", () => api.playbackState() as Promise<PlaybackState>, { refreshInterval: 2000 }
+    "playback",
+    () => api.playbackState() as Promise<PlaybackState>,
+    { refreshInterval: 2000 } // Poll every 2 seconds
   );
-  const { data: users } = useSWR<User[]>("users", () => api.listUsers() as Promise<User[]>);
-  const [pressing, setPressing] = useState<string | null>(null);
-  const [volDraft,  setVolDraft] = useState<number | null>(null);
 
-  const press = async (name: string) => {
-    setPressing(name);
-    await api.pressButton(name).catch(() => {});
-    await mutate();
-    setPressing(null);
+  const [loading, setLoading] = useState(false);
+
+  const playPause = async () => {
+    setLoading(true);
+    try {
+      await fetch("/api/playback/toggle", { method: "POST" });
+      mutate();
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const commitVolume = async (v: number) => {
-    await api.setVolume(v);
-    setVolDraft(null);
+  const next = async () => {
+    setLoading(true);
+    try {
+      await fetch("/api/playback/next", { method: "POST" });
+      mutate();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const prev = async () => {
+    setLoading(true);
+    try {
+      await fetch("/api/playback/prev", { method: "POST" });
+      mutate();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setVolume = async (vol: number) => {
+    await fetch("/api/playback/volume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ volume: vol }),
+    });
     mutate();
   };
 
-  const vol = volDraft ?? state?.volume ?? 70;
+  if (!state) return <Spinner />;
+
+  const progress = state.duration_ms > 0 ? (state.position_ms / state.duration_ms) * 100 : 0;
 
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="max-w-2xl space-y-6">
       <div>
         <h1 className="font-display font-extrabold text-3xl text-paper mb-1">Wiedergabe</h1>
-        <p className="text-muted text-sm">Steuerung & Lautstärke</p>
+        <p className="text-muted text-sm">Aktuelle Musik-Wiedergabe steuern</p>
       </div>
 
-      {!state ? <Spinner /> : (
-        <>
-          {/* Now playing */}
-          <Card className="p-8 text-center">
-            <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center text-5xl mb-5
-                             ${state.playing ? "bg-amber/15" : "bg-surface"}`}>
-              {state.playing ? "🎵" : "⏸"}
+      {/* Current Track */}
+      <Card className="p-6">
+        {state.track ? (
+          <div>
+            <div className="flex items-start gap-4 mb-4">
+              {/* Album Art Placeholder */}
+              <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-teal to-amber flex-shrink-0 flex items-center justify-center">
+                <span className="text-3xl">🎵</span>
+              </div>
+
+              {/* Track Info */}
+              <div className="flex-1 min-w-0">
+                <h2 className="font-display font-bold text-xl text-paper mb-1 truncate">
+                  {state.track}
+                </h2>
+                <p className="text-sm text-muted truncate">{state.artist}</p>
+                {state.album && (
+                  <p className="text-xs text-muted/70 truncate mt-0.5">{state.album}</p>
+                )}
+              </div>
+
+              {/* Playing Indicator */}
+              {state.playing && (
+                <div className="flex-shrink-0 flex items-center gap-1">
+                  <div className="w-1 h-3 bg-teal rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
+                  <div className="w-1 h-4 bg-teal rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
+                  <div className="w-1 h-3 bg-teal rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
+                </div>
+              )}
             </div>
-            <p className="font-display font-bold text-xl text-paper mb-1">
-              {state.track || "Nichts läuft"}
+
+            {/* Progress Bar */}
+            <div className="mb-4">
+              <div className="h-2 bg-surface rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-teal to-amber transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-muted mt-1">
+                <span>{formatTime(state.position_ms)}</span>
+                <span>{formatTime(state.duration_ms)}</span>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={prev}
+                disabled={loading}
+                className="w-12 h-12 rounded-full"
+              >
+                ⏮
+              </Button>
+              <Button
+                variant="primary"
+                onClick={playPause}
+                disabled={loading}
+                className="w-14 h-14 rounded-full text-2xl"
+              >
+                {state.playing ? "⏸" : "▶️"}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={next}
+                disabled={loading}
+                className="w-12 h-12 rounded-full"
+              >
+                ⏭
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <p className="text-2xl mb-2">🎵</p>
+            <p className="text-muted text-sm">
+              Keine Wiedergabe aktiv
             </p>
-            <p className="text-muted text-sm">{state.artist || "—"}</p>
-            {state.album && <p className="text-muted/50 text-xs mt-1">{state.album}</p>}
-          </Card>
+            <p className="text-xs text-muted/70 mt-1">
+              Lege einen RFID-Tag mit Playlist auf den Reader
+            </p>
+          </div>
+        )}
+      </Card>
 
-          {/* Controls */}
-          <Card className="p-6">
-            <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-5">Steuerung</p>
-            <div className="flex items-center justify-center gap-4">
-              {BUTTONS.map(b => (
-                <button key={b.name}
-                  onClick={() => press(b.name)}
-                  disabled={pressing !== null}
-                  className={`flex flex-col items-center gap-1.5 px-5 py-3 rounded-2xl transition-all
-                              ${pressing === b.name ? "bg-amber/20 scale-95" : "bg-surface hover:bg-amber/10 border border-border"}
-                              disabled:opacity-50`}>
-                  <span className="text-2xl">{b.icon}</span>
-                  <span className="text-[10px] font-display text-muted">{b.label}</span>
-                </button>
-              ))}
-            </div>
+      {/* Volume Control */}
+      <Card className="p-6">
+        <div className="flex items-center gap-4">
+          <span className="text-muted text-sm font-display font-semibold w-24">
+            Lautstärke
+          </span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={state.volume}
+            onChange={(e) => setVolume(parseInt(e.target.value))}
+            className="flex-1 h-2 bg-surface rounded-full appearance-none cursor-pointer
+                       [&::-webkit-slider-thumb]:appearance-none
+                       [&::-webkit-slider-thumb]:w-4
+                       [&::-webkit-slider-thumb]:h-4
+                       [&::-webkit-slider-thumb]:rounded-full
+                       [&::-webkit-slider-thumb]:bg-amber
+                       [&::-webkit-slider-thumb]:cursor-pointer"
+          />
+          <span className="text-paper font-mono text-sm w-12 text-right">
+            {state.volume}%
+          </span>
+        </div>
+      </Card>
 
-            {/* Volume slider */}
-            <div className="mt-6 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-display font-medium text-muted">Lautstärke</span>
-                <span className="text-sm font-display font-semibold text-amber">{vol}%</span>
-              </div>
-              <input
-                type="range" min={0} max={100} value={vol}
-                onChange={e => setVolDraft(+e.target.value)}
-                onMouseUp={e => commitVolume(+(e.target as HTMLInputElement).value)}
-                onTouchEnd={e => commitVolume(+(e.target as HTMLInputElement).value)}
-                className="accent-amber w-full"
-              />
-              <div className="flex justify-between">
-                <Button variant="ghost" size="sm" onClick={() => commitVolume(Math.max(0,  vol - 10))}>− 10</Button>
-                <Button variant="ghost" size="sm" onClick={() => commitVolume(Math.min(100, vol + 10))}>+ 10</Button>
-              </div>
-            </div>
-          </Card>
+      {/* Quick Actions */}
+      <Card className="p-6">
+        <p className="text-xs font-display font-bold text-muted uppercase tracking-wider mb-3">
+          Schnellaktionen
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="secondary" size="sm">
+            🔀 Shuffle
+          </Button>
+          <Button variant="secondary" size="sm">
+            🔁 Repeat
+          </Button>
+          <Button variant="secondary" size="sm">
+            ⏱️ Sleep Timer
+          </Button>
+          <Button variant="secondary" size="sm">
+            ⭐ Favoriten
+          </Button>
+        </div>
+      </Card>
 
-          {/* User switcher */}
-          {users && users.length > 0 && (
-            <Card className="p-6">
-              <p className="text-xs font-display font-semibold text-muted uppercase tracking-wider mb-4">Aktives Kind</p>
-              <div className="flex flex-wrap gap-2">
-                {users.map(u => (
-                  <button key={u.id}
-                    onClick={() => api.setActiveUser(u.id).then(() => mutate())}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-surface
-                               hover:border-amber/30 hover:bg-amber/5 transition-all text-sm">
-                    <span>{u.avatar_emoji}</span>
-                    <span className="font-display font-medium text-paper/80">{u.display_name}</span>
-                  </button>
-                ))}
-              </div>
-            </Card>
-          )}
-        </>
+      {/* Spotify URI Info */}
+      {state.uri && (
+        <Card className="p-4 bg-surface/50">
+          <p className="text-[10px] text-muted uppercase tracking-wider mb-1">Spotify URI</p>
+          <code className="text-xs font-mono text-muted/70 select-all break-all">
+            {state.uri}
+          </code>
+        </Card>
       )}
     </div>
   );
+}
+
+function formatTime(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }

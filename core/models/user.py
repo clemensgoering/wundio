@@ -12,8 +12,8 @@ def resolve_rfid_action(session: Session, uid: str) -> Optional[dict]:
 
     Returns:
         {"type": "user_login", "user_id": 1} |
-        {"type": "playlist",   "spotify_uri": "spotify:playlist:..."} |
-        {"type": "action",     "action": "stop"} |
+        {"type": "playlist", "spotify_uri": "...", "label": "My Playlist"} |
+        {"type": "action", "action": "stop"} |
         None
     """
     tag = session.exec(select(RfidTag).where(RfidTag.uid == uid)).first()
@@ -22,8 +22,14 @@ def resolve_rfid_action(session: Session, uid: str) -> Optional[dict]:
 
     if tag.tag_type == "user" and tag.user_id:
         return {"type": "user_login", "user_id": tag.user_id}
+    
     if tag.tag_type == "playlist" and tag.spotify_uri:
-        return {"type": "playlist", "spotify_uri": tag.spotify_uri}
+        return {
+            "type": "playlist",
+            "spotify_uri": tag.spotify_uri,
+            "label": tag.label or "Playlist"  # ← NEU: Label mitgeben
+        }
+    
     if tag.tag_type == "action" and tag.action:
         return {"type": "action", "action": tag.action}
 
