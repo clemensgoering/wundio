@@ -18,6 +18,28 @@ AI features are automatically enabled or disabled based on the model.
 
 Full guide: [wundio.dev/docs/quickstart](https://wundio.dev/docs/quickstart)
 
+## Updates
+
+Keep your Wundio Box up to date:
+
+```bash
+# Quick update (code from GitHub, ~10 seconds)
+sudo bash /opt/wundio/scripts/wundio-pull
+
+# Full update (code + frontend rebuild, ~5 minutes)
+sudo bash /opt/wundio/scripts/wundio-pull --full
+
+# System update (OS packages + Python libraries)
+sudo bash /opt/wundio/scripts/update.sh
+```
+
+After updates:
+```bash
+sudo systemctl restart wundio-core
+```
+
+[Full update documentation](https://wundio.dev/docs/updates)
+
 ## Repository structure
 
 ```
@@ -36,7 +58,8 @@ wundio/
 ├── scripts/               # Shell scripts
 │   ├── install.sh         # Main install (one-liner)
 │   ├── uninstall.sh       # Full removal
-│   ├── update.sh          # Update existing installation
+│   ├── update.sh          # System update (OS + Python libs)
+│   ├── wundio-pull        # Code update from GitHub (NEW)
 │   ├── setup-hotspot.sh   # WiFi hotspot for first-run setup
 │   ├── install-whisper.sh # Whisper STT (Phase 3)
 │   ├── install-piper.sh   # Piper TTS (Phase 3)
@@ -51,54 +74,73 @@ wundio/
 > [clemensgoering/wundio-website](https://github.com/clemensgoering/wundio-website)
 > Scripts in `scripts/` are synced there automatically on every push to `main`.
 
-## Phase plan
+## Development
 
-| Phase | Status | Content |
-|-------|--------|---------|
-| 0 - Foundation  | Done | Hardware detection, DB, RFID, OLED, install, hotspot |
-| 1 - Music       | Done | librespot (Spotify Connect), GPIO buttons, web interface |
-| 2 - Multi-user  | Done | Child profiles, RFID login, personalised playlists, WiFi API |
-| 3 - Voice       | Done | Whisper STT, Piper TTS, wake-word, intent parser, voice API |
-| 4 - LLM Agent   | Planned | Ollama local, Wundio character, conversation |
-| 5 - Modules     | Planned | Community extensions, camera, learning content |
+### Local Development (PC)
 
-## Hardware (minimum)
-
-| Part | Model | Note |
-|------|-------|------|
-| Raspberry Pi | 3B / 4 / 5 | Pi 5 recommended for AI features |
-| RFID reader | RC522 | SPI interface |
-| Display | I2C OLED 128x64 | SSD1306 compatible |
-| Buttons | 5x pushbutton | Play/Pause, Next, Prev, Vol+/- |
-| Audio | USB soundcard or DAC HAT | |
-
-Full pinout: [wundio.dev/docs/hardware](https://wundio.dev/docs/hardware)
-
-## Dev setup (no Pi required)
-
+**Backend:**
 ```bash
-git clone https://github.com/clemensgoering/wundio.git
-cd wundio
-make install    # Python venv + deps
-make run        # FastAPI on localhost:8000
-make test       # 155 tests, all pass without hardware
+cd core
+python3 -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+uvicorn main:app --reload
 ```
 
-## Configuration
+**Frontend:**
+```bash
+cd web
+npm install
+npm run dev  # http://localhost:5173
+```
 
-After installation, settings are in `/etc/wundio/wundio.env`.
-All GPIO pins and feature flags can be overridden there.
+### Deploy to Pi
+
+**Option 1: Git Pull (Recommended)**
+```bash
+# On Pi:
+sudo bash /opt/wundio/scripts/wundio-pull
+sudo systemctl restart wundio-core
+```
+
+**Option 2: Direct Push from PC**
+```bash
+# On PC:
+git push origin main
+
+# On Pi:
+cd /opt/wundio
+git pull
+sudo systemctl restart wundio-core
+```
+
+### Testing
 
 ```bash
-sudo nano /etc/wundio/wundio.env
-sudo systemctl restart wundio-core
+# Run tests locally (no Pi required)
+pytest tests/
+
+# Run with coverage
+pytest --cov=core tests/
 ```
 
 ## Contributing
 
-PRs welcome. Open an issue first for larger changes.
-Modules can be contributed as standalone directories under `modules/`.
+1. Fork the repo
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Links
+
+- **Website:** [wundio.dev](https://wundio.dev)
+- **Documentation:** [wundio.dev/docs](https://wundio.dev/docs)
+- **Hardware Guide:** [wundio.dev/docs/hardware](https://wundio.dev/docs/hardware)
+- **Community:** [GitHub Discussions](https://github.com/clemensgoering/wundio/discussions)

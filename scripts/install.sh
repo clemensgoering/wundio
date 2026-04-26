@@ -549,6 +549,26 @@ chmod 660 "$CONF_DIR/wundio.env"
 chown root:"$WUNDIO_USER" "$CONF_DIR/wundio.env"
 ok "Config written to $CONF_DIR/wundio.env"
 
+
+#!/usr/bin/env bash
+# Wundio install.sh – Management Commands Setup
+# Füge diesen Block NACH Section "9/10 Frontend Build" ein
+
+# ── 8.5/10 Setup Management Commands ──────────────────────────────────────────
+section "8.5/10 Wundio Pull & Management Commands"
+
+# Make scripts executable
+chmod +x "${INSTALL_DIR}/scripts/"*.sh
+chmod +x "${INSTALL_DIR}/scripts/wundio-pull" 2>/dev/null || true
+
+ok "Management commands ready"
+info ""
+info "Available commands:"
+info "  System update:  sudo bash ${INSTALL_DIR}/scripts/update.sh"
+info "  Code update:    sudo bash ${INSTALL_DIR}/scripts/wundio-pull"
+info "  Full update:    sudo bash ${INSTALL_DIR}/scripts/wundio-pull --full"
+
+
 # -- 9/10 systemd services
 section "9/10 Installing systemd services"
 SYSTEMD_DIR="/etc/systemd/system"
