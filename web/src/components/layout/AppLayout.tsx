@@ -12,6 +12,7 @@ const NAV = [
   { to: "/rfid",     icon: "—", label: "RFID Tags"     },
   { to: "/log",      icon: "—", label: "Aktivitäten"  },
   { to: "/settings", icon: "—", label: "Einstellungen" },
+  { to: "/system",   icon: "—", label: "System"        },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {

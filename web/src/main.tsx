@@ -10,6 +10,7 @@ import Settings  from "@/pages/Settings";
 import "./index.css";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import LogPage from "./pages/Log";
+import SystemPage from "./pages/System";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -21,7 +22,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/users"    element={<ErrorBoundary><Users /></ErrorBoundary>}     />
           <Route path="/rfid"     element={<ErrorBoundary><RfidPage /></ErrorBoundary>}  />
           <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>}  />
+          <Route path="/system"   element={<ErrorBoundary><SystemPage /></ErrorBoundary>} />
           <Route path="/log"      element={<ErrorBoundary><LogPage /></ErrorBoundary>}   />
+ 
         </Routes>
       </AppLayout>
     </BrowserRouter>

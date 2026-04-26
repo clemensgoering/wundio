@@ -19,6 +19,7 @@ from services.rfid import get_rfid_service
 from services.spotify import get_spotify_service
 from services.ai.voice import get_voice_orchestrator
 from services.buttons import build_default_service
+from api.routes.system_actions import router as system_actions_router
 from api.routes import system, users, rfid_routes, settings_routes, playback, wifi, voice, spotify_auth
 
 logging.basicConfig(
@@ -278,9 +279,10 @@ app.include_router(users.router,           prefix="/api/users")
 app.include_router(rfid_routes.router,     prefix="/api/rfid")
 app.include_router(settings_routes.router, prefix="/api/settings")
 app.include_router(playback.router,        prefix="/api/playback")
-app.include_router(wifi.router,             prefix="/api/wifi")
-app.include_router(voice.router,             prefix="/api/voice")
-app.include_router(spotify_auth.router,      prefix="/api/spotify")
+app.include_router(wifi.router,                 prefix="/api/wifi")
+app.include_router(voice.router,                prefix="/api/voice")
+app.include_router(spotify_auth.router,         prefix="/api/spotify")
+app.include_router(system_actions_router,       prefix="/api/system")
 
 _static = Path(cfg.static_dir)
 if _static.exists():
