@@ -21,12 +21,21 @@ interface WifiStatus {
   hotspot:    boolean;
 }
 
+interface SpotifyStatus {
+  has_client_id:     boolean;
+  has_secret:        boolean;
+  has_refresh_token: boolean;
+  oauth_complete:    boolean;
+}
+
 const SECTION_LABELS: Record<string, string> = {
-  spotify:     "Spotify – Gerät",
-  spotify_api: "Spotify – Web API (für RFID Playlist-Autostart)",
-  hotspot:     "WLAN Hotspot (Ersteinrichtung)",
-  hardware:    "Hardware (Erweitert)",
+  spotify:  "Spotify – Gerät",
+  hotspot:  "WLAN Hotspot (Ersteinrichtung)",
+  hardware: "Hardware (Erweitert)",
 };
+
+// Sections rendered by custom components, not the generic field renderer
+const CUSTOM_SECTIONS = new Set(["spotify_api"]);
 
 const fetcher = async (url: string) => {
   const r = await fetch(url);
@@ -37,6 +46,11 @@ const fetcher = async (url: string) => {
 export default function SettingsPage() {
   const { data: entries, mutate } = useSWR<EnvEntry[]>("/api/settings/env/all", fetcher);
   const { data: wifi } = useSWR<WifiStatus>("/api/wifi/status", fetcher);
+  const { data: spotifyStatus, mutate: mutateSpotify } = useSWR<SpotifyStatus>(
+    "/api/settings/spotify/status",
+    fetcher,
+    { refreshInterval: 5000 } // poll every 5s so UI updates after OAuth callback
+  );
 
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<Record<string, string>>({});
@@ -54,6 +68,7 @@ export default function SettingsPage() {
       });
       setSaved({ ...saved, [key]: true });
       mutate();
+      mutateSpotify();
       setTimeout(() => setSaved({ ...saved, [key]: false }), 2000);
     } finally {
       setLoading({ ...loading, [key]: false });
@@ -67,13 +82,6 @@ export default function SettingsPage() {
     acc[e.section].push(e);
     return acc;
   }, {} as Record<string, EnvEntry[]>);
-
-  const hasClientId = entries.find((e) => e.key === "SPOTIFY_CLIENT_ID")?.has_value;
-  const hasSecret = entries.find((e) => e.key === "SPOTIFY_CLIENT_SECRET")?.has_value;
-  
-  // SPOTIFY_REFRESH_TOKEN ist nicht im Schema, daher separater Check nötig
-  // Workaround: Check ob entry existiert (auch wenn nicht editierbar)
-  const hasRefreshToken = false; // TODO: Braucht /api/settings/spotify/status Endpoint
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -117,97 +125,86 @@ export default function SettingsPage() {
         </Card>
       )}
 
-      {/* Spotify Setup Guide */}
-      {bySection.spotify_api && (
-        <div>
-          <h2 className="font-display font-bold text-xl text-paper mb-3">
-            Spotify Web API Setup
-          </h2>
-          <InteractiveSpotifySetup
-            hasClientId={hasClientId || false}
-            hasSecret={hasSecret || false}
-            hasRefreshToken={hasRefreshToken}
-          />
-        </div>
-      )}
+      {/* Spotify Web API Setup – custom interactive component */}
+      <div>
+        <h2 className="font-display font-bold text-xl text-paper mb-3">
+          Spotify Web API Setup
+        </h2>
+        <InteractiveSpotifySetup
+          hasClientId={spotifyStatus?.has_client_id ?? false}
+          hasSecret={spotifyStatus?.has_secret ?? false}
+          hasRefreshToken={spotifyStatus?.has_refresh_token ?? false}
+          onCredentialsSaved={mutateSpotify}
+        />
+      </div>
 
-      {/* All Settings Sections */}
-      {Object.entries(bySection).map(([section, items]) => (
-        <div key={section}>
-          <h2 className="font-display font-bold text-xl text-paper mb-3">
-            {SECTION_LABELS[section] || section}
-          </h2>
+      {/* Generic Settings Sections (excludes custom-rendered ones) */}
+      {Object.entries(bySection)
+        .filter(([section]) => !CUSTOM_SECTIONS.has(section))
+        .map(([section, items]) => (
+          <div key={section}>
+            <h2 className="font-display font-bold text-xl text-paper mb-3">
+              {SECTION_LABELS[section] || section}
+            </h2>
 
-          <Card className="divide-y divide-border">
-            {items.map((entry) => (
-              <div key={entry.key} className="p-4">
-                <div className="flex items-start gap-3 mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-sm font-display font-semibold text-paper">
-                        {entry.label}
-                      </p>
-                      {entry.has_value && (
-                        <Badge color="teal">
-                          Gesetzt
-                        </Badge>
-                      )}
-                      {saved[entry.key] && (
-                        <Badge color="teal">
-                          ✓ Gespeichert
-                        </Badge>
-                      )}
+            <Card className="divide-y divide-border">
+              {items.map((entry) => (
+                <div key={entry.key} className="p-4">
+                  <div className="flex items-start gap-3 mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-display font-semibold text-paper">
+                          {entry.label}
+                        </p>
+                        {entry.has_value && (
+                          <Badge color="teal">Gesetzt</Badge>
+                        )}
+                        {saved[entry.key] && (
+                          <Badge color="teal">✓ Gespeichert</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted">{entry.description}</p>
                     </div>
-                    <p className="text-xs text-muted">{entry.description}</p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {entry.type === "select" && entry.options ? (
+                      <select
+                        value={editing[entry.key] ?? entry.value ?? ""}
+                        onChange={(e) =>
+                          setEditing({ ...editing, [entry.key]: e.target.value })
+                        }
+                        className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg
+                                   text-sm text-paper focus:outline-none focus:ring-2 focus:ring-teal/50"
+                      >
+                        {entry.options.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        type={entry.type === "password" ? "password" : "text"}
+                        placeholder={entry.has_value ? "••••••••" : "Wert eingeben..."}
+                        value={editing[entry.key] ?? ""}
+                        onChange={(e) =>
+                          setEditing({ ...editing, [entry.key]: e.target.value })
+                        }
+                        className="flex-1 font-mono text-sm"
+                      />
+                    )}
+                    <Button
+                      onClick={() => save(entry.key)}
+                      loading={loading[entry.key]}
+                      disabled={editing[entry.key] === undefined}
+                    >
+                      Speichern
+                    </Button>
                   </div>
                 </div>
-
-                <div className="flex gap-2">
-                  {entry.type === "select" && entry.options ? (
-                    <select
-                      value={editing[entry.key] ?? entry.value ?? ""}
-                      onChange={(e) =>
-                        setEditing({ ...editing, [entry.key]: e.target.value })
-                      }
-                      className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg
-                                 text-sm text-paper
-                                 focus:outline-none focus:ring-2 focus:ring-teal/50"
-                    >
-                      {entry.options.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      type={entry.secret ? "password" : "text"}
-                      value={editing[entry.key] ?? entry.value ?? ""}
-                      onChange={(e) =>
-                        setEditing({ ...editing, [entry.key]: e.target.value })
-                      }
-                      placeholder={entry.secret ? "••••••••" : entry.label}
-                      className="flex-1"
-                    />
-                  )}
-
-                  <Button
-                    onClick={() => save(entry.key)}
-                    loading={loading[entry.key]}
-                    disabled={
-                      editing[entry.key] === undefined ||
-                      editing[entry.key] === entry.value
-                    }
-                    size="sm"
-                  >
-                    Speichern
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </Card>
-        </div>
-      ))}
+              ))}
+            </Card>
+          </div>
+        ))}
     </div>
   );
 }

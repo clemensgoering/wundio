@@ -559,15 +559,17 @@ section "8.5/10 Wundio Pull & Management Commands"
 
 # Make scripts executable
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
-chmod +x "${INSTALL_DIR}/scripts/wundio-pull" 2>/dev/null || true
+
+# Create symlinks in /usr/local/bin for easy access
+ln -sf "${INSTALL_DIR}/scripts/wundio-pull.sh" /usr/local/bin/wundio-pull
+ln -sf "${INSTALL_DIR}/scripts/update.sh" /usr/local/bin/wundio-update
 
 ok "Management commands ready"
 info ""
 info "Available commands:"
-info "  System update:  sudo bash ${INSTALL_DIR}/scripts/update.sh"
-info "  Code update:    sudo bash ${INSTALL_DIR}/scripts/wundio-pull"
-info "  Full update:    sudo bash ${INSTALL_DIR}/scripts/wundio-pull --full"
-
+info "  System update:  sudo wundio-update"
+info "  Code update:    sudo wundio-pull"
+info "  Full update:    sudo wundio-pull --full"
 
 # -- 9/10 systemd services
 section "9/10 Installing systemd services"
