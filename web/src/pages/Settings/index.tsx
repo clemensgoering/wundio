@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { Card, Input, Button, Badge, Spinner } from "@/components/ui";
 import InteractiveSpotifySetup from "./InteractiveSpotifySetup";
@@ -35,9 +35,8 @@ const fetcher = async (url: string) => {
 };
 
 export default function SettingsPage() {
-  const { data: entries, mutate } = useSWR<EnvEntry[]>("/api/settings/schema", fetcher);
+  const { data: entries, mutate } = useSWR<EnvEntry[]>("/api/settings/env/all", fetcher);
   const { data: wifi } = useSWR<WifiStatus>("/api/wifi/status", fetcher);
-  const { data: spotifyStatus } = useSWR("/api/settings/spotify/status", fetcher);
 
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<Record<string, string>>({});
@@ -48,7 +47,7 @@ export default function SettingsPage() {
     if (val === undefined) return;
     setLoading({ ...loading, [key]: true });
     try {
-      await fetch(`/api/settings/${key}`, {
+      await fetch(`/api/settings/env/${key}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: val }),
@@ -61,7 +60,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (!entries) return <Spinner />;
+  if (!entries || !Array.isArray(entries)) return <Spinner />;
 
   const bySection = entries.reduce((acc, e) => {
     if (!acc[e.section]) acc[e.section] = [];
@@ -71,7 +70,10 @@ export default function SettingsPage() {
 
   const hasClientId = entries.find((e) => e.key === "SPOTIFY_CLIENT_ID")?.has_value;
   const hasSecret = entries.find((e) => e.key === "SPOTIFY_CLIENT_SECRET")?.has_value;
-  const hasRefreshToken = entries.find((e) => e.key === "SPOTIFY_REFRESH_TOKEN")?.has_value;
+  
+  // SPOTIFY_REFRESH_TOKEN ist nicht im Schema, daher separater Check nötig
+  // Workaround: Check ob entry existiert (auch wenn nicht editierbar)
+  const hasRefreshToken = false; // TODO: Braucht /api/settings/spotify/status Endpoint
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -124,7 +126,7 @@ export default function SettingsPage() {
           <InteractiveSpotifySetup
             hasClientId={hasClientId || false}
             hasSecret={hasSecret || false}
-            hasRefreshToken={hasRefreshToken || false}
+            hasRefreshToken={hasRefreshToken}
           />
         </div>
       )}
