@@ -1,12 +1,14 @@
 """
-Wundio – Spotify OAuth Flow (Decentralized)
+Wundio – Spotify OAuth Flow via wundio.dev relay
 
-Redirect URI resolution (priority order):
-  1. SPOTIFY_REDIRECT_URI in wundio.env  ← set by InteractiveSpotifySetup Step 1
-  2. Auto-detected IP (wlan0 → eth0 → 127.0.0.1)
-
-The URI is embedded in the OAuth state so auth/start and callback
-always use the same value regardless of how the Pi is accessed.
+Flow:
+  1. auth/start → Spotify mit redirect_uri=https://wundio.dev/spotify-callback
+     state = base64(json({pi_origin: "http://192.168.x.x:8000"}))
+  2. Spotify → https://wundio.dev/spotify-callback?code=...&state=...
+  3. wundio.dev/spotify-callback (Next.js) dekodiert pi_origin aus state,
+     leitet weiter: http://{pi}:8000/api/spotify/callback?code=...&state=...
+  4. Pi-Backend tauscht code gegen token – mit redirect_uri=https://wundio.dev/spotify-callback
+     (muss exakt dem Wert entsprechen der bei Spotify eingetragen ist)
 """
 import base64
 import json
@@ -24,6 +26,8 @@ from database import log_event
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["spotify-auth"])
 
+RELAY_REDIRECT_URI = "https://wundio.dev/spotify-callback"
+
 SPOTIFY_SCOPES = " ".join([
     "user-read-playback-state",
     "user-modify-playback-state",
@@ -36,7 +40,6 @@ ENV_FILE = Path("/etc/wundio/wundio.env")
 
 
 def _read_env_key(key: str) -> str:
-    """Read a single key directly from wundio.env (bypasses pydantic cache)."""
     if not ENV_FILE.exists():
         return ""
     for line in ENV_FILE.read_text().splitlines():
@@ -47,7 +50,6 @@ def _read_env_key(key: str) -> str:
 
 
 def _detect_local_ip() -> str:
-    """Try wlan0, then eth0, then localhost."""
     import subprocess
     for iface in ("wlan0", "eth0"):
         try:
@@ -63,35 +65,36 @@ def _detect_local_ip() -> str:
     return "127.0.0.1"
 
 
-def _get_redirect_uri() -> str:
+def _get_pi_origin() -> str:
     """
-    Returns the canonical redirect URI.
-    Reads directly from wundio.env so it always reflects what the user
-    entered in the Spotify Developer App – independent of pydantic cache
-    or how the browser accesses the Pi (IP vs wundio.local).
+    Returns http://{pi-ip}:8000 – the local address the relay will forward to.
+    Reads PI_LOCAL_IP from wundio.env first (set by UI), falls back to detection.
     """
-    stored = _read_env_key("SPOTIFY_REDIRECT_URI").strip()
-    if stored:
-        logger.debug("Using stored redirect URI: %s", stored)
-        return stored
+    stored_ip = _read_env_key("PI_LOCAL_IP").strip()
+    ip = stored_ip if stored_ip else _detect_local_ip()
     cfg = get_settings()
-    ip = _detect_local_ip()
-    fallback = f"http://{ip}:{cfg.port}/api/spotify/callback"
-    logger.warning("SPOTIFY_REDIRECT_URI not set – falling back to %s", fallback)
-    return fallback
+    return f"http://{ip}:{cfg.port}"
 
 
-def _encode_state(redirect_uri: str) -> str:
-    return base64.urlsafe_b64encode(
-        json.dumps({"redirect_uri": redirect_uri}).encode()
-    ).decode()
+def _encode_state(pi_origin: str) -> str:
+    """
+    Encode pi_origin into state.
+    Format is compatible with the existing wundio.dev/spotify-callback relay page
+    which does: atob(state) → pi_origin.
+    """
+    return base64.urlsafe_b64encode(pi_origin.encode()).decode()
 
 
 def _decode_state(state: str) -> str | None:
+    """Decode pi_origin from state parameter."""
     try:
-        data = json.loads(base64.urlsafe_b64decode(state.encode()))
-        uri = data.get("redirect_uri")
-        return uri if isinstance(uri, str) and uri else None
+        decoded = base64.urlsafe_b64decode(
+            state.replace("-", "+").replace("_", "/") + "=="
+        ).decode()
+        # Must look like an http origin
+        if decoded.startswith("http"):
+            return decoded
+        return None
     except Exception:
         return None
 
@@ -121,7 +124,6 @@ async def spotify_setup(
     client_id: str = Query(..., min_length=10),
     secret: str = Query(..., min_length=10),
 ):
-    """QR-Scan endpoint: stores Spotify credentials directly."""
     _write_env_key("SPOTIFY_CLIENT_ID", client_id)
     _write_env_key("SPOTIFY_CLIENT_SECRET", secret)
     from config import get_settings as _gs
@@ -137,9 +139,8 @@ async def spotify_setup(
 @router.get("/auth/start")
 async def spotify_auth_start():
     """
-    Redirect to Spotify authorization page.
-    Uses SPOTIFY_REDIRECT_URI from wundio.env – set by the UI setup guide
-    when the user confirms their IP in Step 1.
+    Redirect to Spotify. Uses https://wundio.dev/spotify-callback as redirect_uri
+    (HTTPS, accepted by Spotify). Pi origin is encoded in state for the relay.
     """
     from config import get_settings as _gs
     _gs.cache_clear()
@@ -151,14 +152,14 @@ async def spotify_auth_start():
             message="Bitte zuerst Client ID in den Einstellungen eintragen.",
         ), status_code=400)
 
-    redirect_uri = _get_redirect_uri()
-    state = _encode_state(redirect_uri)
-    logger.info("Spotify auth/start – redirect_uri=%s", redirect_uri)
+    pi_origin = _get_pi_origin()
+    state = _encode_state(pi_origin)
+    logger.info("Spotify auth/start – pi_origin=%s relay=%s", pi_origin, RELAY_REDIRECT_URI)
 
     params = urllib.parse.urlencode({
         "client_id":     cfg.spotify_client_id,
         "response_type": "code",
-        "redirect_uri":  redirect_uri,
+        "redirect_uri":  RELAY_REDIRECT_URI,
         "scope":         SPOTIFY_SCOPES,
         "state":         state,
         "show_dialog":   "true",
@@ -168,7 +169,10 @@ async def spotify_auth_start():
 
 @router.get("/callback")
 async def spotify_callback(code: str = "", error: str = "", state: str = ""):
-    """Exchange authorization code for tokens."""
+    """
+    Called by the wundio.dev relay after Spotify authorizes.
+    Token exchange uses RELAY_REDIRECT_URI (must match Spotify app config).
+    """
     if error:
         log_event("spotify", f"OAuth abgebrochen: {error}", level="WARN")
         return HTMLResponse(_error_page(
@@ -182,17 +186,11 @@ async def spotify_callback(code: str = "", error: str = "", state: str = ""):
             message="Spotify hat keinen Code zurückgegeben.",
         ))
 
-    # Decode URI from state – must match exactly what was sent to Spotify
-    redirect_uri = _decode_state(state) if state else None
-    if not redirect_uri:
-        redirect_uri = _get_redirect_uri()
-        logger.warning("State missing/invalid – using env URI: %s", redirect_uri)
-
     cfg = get_settings()
     if not cfg.spotify_client_id or not cfg.spotify_client_secret:
         return HTMLResponse(_error_page(
             title="Fehlende Credentials",
-            message="Client ID oder Secret fehlt. Bitte Einstellungen prüfen.",
+            message="Client ID oder Secret fehlt.",
         ))
 
     try:
@@ -200,12 +198,13 @@ async def spotify_callback(code: str = "", error: str = "", state: str = ""):
             f"{cfg.spotify_client_id}:{cfg.spotify_client_secret}".encode()
         ).decode()
 
+        # redirect_uri MUST be the relay URI – same value sent to Spotify in auth/start
         token_req = urllib.request.Request(
             "https://accounts.spotify.com/api/token",
             data=urllib.parse.urlencode({
                 "grant_type":   "authorization_code",
                 "code":         code,
-                "redirect_uri": redirect_uri,
+                "redirect_uri": RELAY_REDIRECT_URI,
             }).encode(),
             headers={
                 "Authorization": f"Basic {creds}",

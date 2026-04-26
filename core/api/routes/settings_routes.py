@@ -49,9 +49,9 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "spotify_api",
         "secret":      True,
     },
-    "SPOTIFY_REDIRECT_URI": {
-        "label":       "Redirect URI",
-        "description": "Muss exakt mit dem Eintrag in der Spotify Developer App übereinstimmen",
+    "PI_LOCAL_IP": {
+        "label":       "Pi IP-Adresse",
+        "description": "Lokale IP dieser Box – wird beim Spotify-Setup automatisch gesetzt",
         "type":        "text",
         "section":     "spotify_api",
         "secret":      False,
