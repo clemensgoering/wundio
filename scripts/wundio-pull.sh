@@ -185,11 +185,12 @@ if [[ "$REBUILD_FRONTEND" == true ]]; then
     # Build
     info "Starte Vite Build..."
     npm run build || error "Build fehlgeschlagen"
-    
-    # Copy to static
-    info "Kopiere Build nach static/..."
-    
-    ok "Frontend neu gebaut"
+
+    ok "Frontend neu gebaut (→ ${STATIC_DIR})"
+
+    # Cleanup
+    rm -rf node_modules/.cache 2>/dev/null || true
+
     cd "$REPO_DIR"
 fi
 
