@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Button } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 
 interface InteractiveSetupProps {
   hasClientId: boolean;
@@ -10,13 +10,20 @@ interface InteractiveSetupProps {
 }
 
 export default function InteractiveSpotifySetup({
-  hasClientId,
-  hasSecret,
+  hasClientId: initialHasClientId,
+  hasSecret: initialHasSecret,
   hasRefreshToken,
 }: InteractiveSetupProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [localIp, setLocalIp] = useState("");
   const [ipError, setIpError] = useState("");
+  
+  // Credentials state (direkt im Guide)
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [hasClientId, setHasClientId] = useState(initialHasClientId);
+  const [hasSecret, setHasSecret] = useState(initialHasSecret);
 
   // Auto-detect local IP on mount
   useEffect(() => {
@@ -29,7 +36,6 @@ export default function InteractiveSpotifySetup({
           }
         })
         .catch(() => {
-          // Fallback wenn API nicht erreichbar
           setLocalIp("");
         });
     }
@@ -43,20 +49,17 @@ export default function InteractiveSpotifySetup({
       return false;
     }
 
-    // Remove any protocol if user pasted full URL
     const cleanIp = ip
-      .replace(/^https?:\/\//, "")  // Remove http:// or https://
-      .replace(/:\d+$/, "")          // Remove port
+      .replace(/^https?:\/\//, "")
+      .replace(/:\d+$/, "")
       .trim();
 
-    // Validate IP format
     const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
     if (!ipPattern.test(cleanIp)) {
       setIpError("Ungültiges Format. Nur IP-Adresse (z.B. 192.168.178.112)");
       return false;
     }
 
-    // Validate each octet is 0-255
     const octets = cleanIp.split(".");
     for (const octet of octets) {
       const num = parseInt(octet, 10);
@@ -66,20 +69,51 @@ export default function InteractiveSpotifySetup({
       }
     }
 
-    // Update to cleaned version
     setLocalIp(cleanIp);
     return true;
   };
 
-  const goToStep2 = () => {
-    if (validateIp(localIp)) {
-      setCurrentStep(2);
+  const saveCredentials = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) {
+      alert("Bitte Client ID und Secret ausfüllen");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Save Client ID
+      const idRes = await fetch("/api/settings/env/SPOTIFY_CLIENT_ID", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: clientId.trim() }),
+      });
+      
+      // Save Client Secret
+      const secretRes = await fetch("/api/settings/env/SPOTIFY_CLIENT_SECRET", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: clientSecret.trim() }),
+      });
+
+      if (idRes.ok && secretRes.ok) {
+        setHasClientId(true);
+        setHasSecret(true);
+        setCurrentStep(4);
+      } else {
+        alert("Fehler beim Speichern. Bitte nochmals versuchen.");
+      }
+    } catch (err) {
+      console.error("Save error:", err);
+      alert("Netzwerkfehler beim Speichern");
+    } finally {
+      setSaving(false);
     }
   };
 
   const redirectUri = localIp 
     ? `http://${localIp}:8000/api/spotify/callback`
     : `http://192.168.1.XXX:8000/api/spotify/callback`;
+  
   const credentialsReady = hasClientId && hasSecret;
 
   return (
@@ -136,7 +170,12 @@ export default function InteractiveSpotifySetup({
                 </code>
               </div>
 
-              <Button onClick={goToStep2} className="w-full">
+              <Button 
+                onClick={() => {
+                  if (validateIp(localIp)) setCurrentStep(2);
+                }} 
+                className="w-full"
+              >
                 Weiter zu Schritt 2 →
               </Button>
             </div>
@@ -217,7 +256,7 @@ export default function InteractiveSpotifySetup({
         </div>
       </div>
 
-      {/* Step 3: Enter Credentials */}
+      {/* Step 3: Enter Credentials (DIREKT HIER) */}
       <div className="flex gap-3">
         <div
           className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center
@@ -232,17 +271,71 @@ export default function InteractiveSpotifySetup({
           </p>
           
           {currentStep >= 3 ? (
-            <div className="space-y-2 mt-2">
-              <p className="text-xs text-muted">
-                Im Spotify Dashboard → Settings → Client ID & Client Secret kopieren
-                und oben in den SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET Feldern eintragen.
-              </p>
-              {credentialsReady && (
-                <Button onClick={() => setCurrentStep(4)} className="w-full">
-                  Credentials gespeichert → Weiter zu Schritt 4
+            credentialsReady ? (
+              <div className="space-y-2 mt-2">
+                <div className="bg-teal/10 border border-teal/30 rounded-lg p-3">
+                  <p className="text-xs text-teal font-semibold">
+                    ✓ Credentials gespeichert
+                  </p>
+                  <p className="text-[10px] text-muted mt-1">
+                    Client ID und Secret sind hinterlegt.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setHasClientId(false);
+                    setHasSecret(false);
+                    setClientId("");
+                    setClientSecret("");
+                  }}
+                  className="text-xs text-teal underline underline-offset-2 hover:text-teal/80"
+                >
+                  Neu eingeben
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 mt-2">
+                <p className="text-xs text-muted">
+                  Im Spotify Dashboard → Settings → Client ID & Client Secret kopieren
+                  und hier eintragen:
+                </p>
+
+                <div>
+                  <label className="block text-xs font-display font-semibold text-muted mb-1">
+                    Client ID
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="Paste Client ID..."
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-display font-semibold text-muted mb-1">
+                    Client Secret
+                  </label>
+                  <Input
+                    type="password"
+                    placeholder="Paste Client Secret..."
+                    value={clientSecret}
+                    onChange={(e) => setClientSecret(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                </div>
+
+                <Button
+                  onClick={saveCredentials}
+                  loading={saving}
+                  disabled={!clientId.trim() || !clientSecret.trim()}
+                  className="w-full"
+                >
+                  Speichern & weiter zu Schritt 4
                 </Button>
-              )}
-            </div>
+              </div>
+            )
           ) : (
             <p className="text-xs text-muted/60 italic">
               Erst Schritt 2 abschließen

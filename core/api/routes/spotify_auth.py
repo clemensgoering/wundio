@@ -114,6 +114,9 @@ async def spotify_auth_start():
     Redirect user to Spotify authorization page.
     Requires SPOTIFY_CLIENT_ID to be set (via /spotify/setup or manually).
     """
+    from config import get_settings as _gs
+    _gs.cache_clear()
+    
     cfg = get_settings()
     if not cfg.spotify_client_id:
         return HTMLResponse(_error_page(
