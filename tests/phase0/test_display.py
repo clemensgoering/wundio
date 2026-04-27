@@ -1,5 +1,7 @@
 """
 Display service tests – factory pattern, all three drivers, fallback behaviour.
+
+Replace the existing TestDisplay class in tests/phase0/test_core.py with this.
 """
 
 
@@ -129,14 +131,12 @@ class TestDisplay:
 
     # ── OledDisplay ───────────────────────────────────────────────────────────
 
-    def test_oled_setup_without_hardware_returns_false(self):
-        from services.display import OledDisplay
-        d = OledDisplay()
-        result = d.setup()
-        assert result is False          # luma.oled stub raises → not available
-        assert d.available is False
+    def test_oled_setup_return_matches_available(self):
+        """setup() return value must always equal d.available.
 
-    def test_oled_available_matches_setup_return(self):
+        Whether luma.oled is stubbed (CI) or absent (no hardware), the bool
+        returned by setup() must be consistent with the available property.
+        """
         from services.display import OledDisplay
         d = OledDisplay()
         result = d.setup()

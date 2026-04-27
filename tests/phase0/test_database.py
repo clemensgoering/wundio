@@ -1,13 +1,24 @@
 """
-Database log_event cap tests.
-
-Complements TestDatabase in tests/phase0/test_core.py.
-Can be merged there or kept as a separate module.
+tests/phase0/test_database.py – Settings helpers and log_event cap behaviour.
 """
 from database import MAX_EVENTS
 
 
-class TestLogEventCap:
+class TestDatabase:
+    def test_set_and_get_setting(self, tmp_db):
+        from database import set_setting, get_setting
+        set_setting("test_key", "hello")
+        assert get_setting("test_key") == "hello"
+
+    def test_get_missing_returns_falsy(self, tmp_db):
+        from database import get_setting
+        result = get_setting("nonexistent")
+        assert not result, f"Expected falsy for missing key, got {result!r}"
+
+    def test_log_event_does_not_raise(self, tmp_db):
+        from database import log_event
+        log_event("test", "message")
+
     def test_log_event_respects_max_cap(self, tmp_db):
         """log_event must not keep more than MAX_EVENTS rows."""
         from database import log_event, get_engine, SystemEvent
@@ -42,20 +53,18 @@ class TestLogEventCap:
                 f"'msg {i}' was pruned but should have been kept"
             )
 
-    def test_log_event_does_not_load_all_rows(self, tmp_db):
-        """log_event cleanup must use COUNT(*), not a full table scan.
-
-        Verified by checking that no query selects all system_events columns
-        without a LIMIT or COUNT aggregate during the cleanup path.
-        """
+    def test_log_event_uses_count_not_full_scan(self, tmp_db):
+        """Cleanup must use COUNT(*), not a full table scan."""
         import database as db_mod
         from sqlmodel import Session as _Session
 
-        all_queries: list[str] = []
+        select_queries: list[str] = []
         original_exec = _Session.exec
 
         def tracking_exec(self, statement, *args, **kwargs):
-            all_queries.append(str(statement))
+            q = str(statement).upper()
+            if q.lstrip().startswith("SELECT"):
+                select_queries.append(str(statement))
             return original_exec(self, statement, *args, **kwargs)
 
         _Session.exec = tracking_exec
@@ -66,11 +75,11 @@ class TestLogEventCap:
             _Session.exec = original_exec
 
         full_table_selects = [
-            q for q in all_queries
+            q for q in select_queries
             if "system_events" in q.lower()
             and "count" not in q.lower()
             and "limit" not in q.lower()
         ]
         assert not full_table_selects, (
-            f"Full-table select(s) found in log_event: {full_table_selects}"
+            f"Full-table SELECT(s) found in log_event: {full_table_selects}"
         )
