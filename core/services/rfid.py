@@ -1,14 +1,16 @@
 """
 Wundio – RFID Service
+
 Supports RC522 (SPI, mfrc522) and PN532 (I2C, adafruit-circuitpython-pn532).
-Driver is selected via RFID_TYPE in wundio.env.
+The driver is selected via RFID_TYPE in wundio.env; the service itself is
+driver-agnostic and works identically regardless of which reader is connected.
 
 Config keys:
-  RFID_TYPE=rc522|pn532        (default: rc522)
-  RFID_RST_PIN=25              (RC522 only, BCM)
-  RFID_SPI_BUS=0               (RC522 only)
-  RFID_SPI_DEV=0               (RC522 only, CE0)
-  RFID_I2C_BUS=1               (PN532 only)
+  RFID_TYPE=rc522|pn532   (default: rc522)
+  RFID_RST_PIN=25         (RC522 only, BCM pin number)
+  RFID_SPI_BUS=0          (RC522 only)
+  RFID_SPI_DEV=0          (RC522 only, CE0)
+  RFID_I2C_BUS=1          (PN532 only)
 """
 
 import asyncio
@@ -26,25 +28,26 @@ DEBOUNCE_SECONDS = 1.5
 # ── Abstract base ──────────────────────────────────────────────────────────────
 
 class RfidDriver(ABC):
-    """
-    Common interface for RFID/NFC backends.
-    All methods are safe to call without hardware.
+    """Common interface for RFID/NFC backends.
+
+    All methods are safe to call without physical hardware – concrete drivers
+    return False / None gracefully when the device is absent.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._available = False
 
     @abstractmethod
     def setup(self) -> bool:
-        """Initialize hardware. Returns True when reader is ready."""
+        """Initialise hardware. Returns True when the reader is ready."""
 
     @abstractmethod
     def read_uid_blocking(self) -> Optional[str]:
-        """
-        Blocking single-read attempt.
-        Returns UID as uppercase hex string (e.g. '04A3F21B')
-        or None when no tag is present.
-        Must be fast enough to be polled at 10 Hz.
+        """Blocking single-read attempt.
+
+        Returns the UID as an uppercase hex string (e.g. ``'04A3F21B'``)
+        or ``None`` when no tag is present. Must be fast enough to be
+        polled at 10 Hz.
         """
 
     @property
@@ -52,24 +55,24 @@ class RfidDriver(ABC):
         return self._available
 
     def teardown(self) -> None:
-        """Release GPIO / I2C resources."""
+        """Release GPIO / I2C resources. No-op by default."""
 
 
-# ── RC522 driver (SPI) ─────────────────────────────────────────────────────────
+# ── RC522 driver (SPI) ────────────────────────────────────────────────────────
 
 class RC522Driver(RfidDriver):
-    """
-    mfrc522 library backend.
+    """mfrc522 library backend (SPI, CE0).
+
     Tested with: https://github.com/pimylifeup/MFRC522-python (v0.0.7)
     Wiring: CE0=Pin24, SCLK=Pin23, MOSI=Pin19, MISO=Pin21, RST=BCM25/Pin22
     """
 
-    def __init__(self, rst_pin: int = 25, spi_bus: int = 0, spi_dev: int = 0):
+    def __init__(self, rst_pin: int = 25, spi_bus: int = 0, spi_dev: int = 0) -> None:
         super().__init__()
         self._rst_pin = rst_pin
         self._spi_bus = spi_bus
         self._spi_dev = spi_dev
-        self._reader = None
+        self._reader  = None
 
     def setup(self) -> bool:
         try:
@@ -77,9 +80,12 @@ class RC522Driver(RfidDriver):
             import RPi.GPIO as GPIO
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.BCM)
-            self._reader = SimpleMFRC522()
+            self._reader    = SimpleMFRC522()
             self._available = True
-            logger.info(f"RC522 initialized (SPI bus={self._spi_bus} dev={self._spi_dev} rst=BCM{self._rst_pin})")
+            logger.info(
+                f"RC522 initialised (SPI bus={self._spi_bus} "
+                f"dev={self._spi_dev} rst=BCM{self._rst_pin})"
+            )
             return True
         except Exception as e:
             logger.warning(f"RC522 not available: {e}")
@@ -109,24 +115,26 @@ class RC522Driver(RfidDriver):
                 pass
 
 
-# ── PN532 driver (I2C) ─────────────────────────────────────────────────────────
+# ── PN532 driver (I2C) ────────────────────────────────────────────────────────
 
 class PN532Driver(RfidDriver):
-    """
-    Adafruit CircuitPython PN532 backend (I2C).
-    Library: adafruit-circuitpython-pn532 (installed by install.sh when RFID_TYPE=pn532)
+    """Adafruit CircuitPython PN532 backend (I2C).
+
+    Library: adafruit-circuitpython-pn532 (installed by install.sh when
+    RFID_TYPE=pn532).
     Wiring: SDA=BCM2/Pin3, SCL=BCM3/Pin5, GND, 3.3V
+
     Advantages over RC522:
-      - Shares I2C bus with OLED → 2 fewer wires
-      - NFC tag compatible (ISO 14443A/B, Mifare, NTAG)
-      - More reliable library (Adafruit maintained)
-      - Longer read range (~5cm vs ~3cm)
+      - Shares I2C bus with OLED → 2 fewer GPIO wires
+      - NFC-compatible (ISO 14443A/B, Mifare, NTAG)
+      - Actively maintained Adafruit library
+      - Slightly longer read range (~5 cm vs ~3 cm)
     """
 
-    def __init__(self, i2c_bus: int = 1):
+    def __init__(self, i2c_bus: int = 1) -> None:
         super().__init__()
         self._i2c_bus = i2c_bus
-        self._pn532 = None
+        self._pn532   = None
 
     def setup(self) -> bool:
         try:
@@ -134,12 +142,12 @@ class PN532Driver(RfidDriver):
             import busio
             from adafruit_pn532.i2c import PN532_I2C
 
-            i2c = busio.I2C(board.SCL, board.SDA)
-            self._pn532 = PN532_I2C(i2c, debug=False)
-            ic, ver, rev, support = self._pn532.firmware_version
+            i2c          = busio.I2C(board.SCL, board.SDA)
+            self._pn532  = PN532_I2C(i2c, debug=False)
+            ic, ver, rev, _ = self._pn532.firmware_version
             self._pn532.SAM_configuration()
             self._available = True
-            logger.info(f"PN532 initialized (I2C bus={self._i2c_bus}) firmware v{ver}.{rev}")
+            logger.info(f"PN532 initialised (I2C bus={self._i2c_bus}) firmware v{ver}.{rev}")
             return True
         except Exception as e:
             logger.warning(f"PN532 not available: {e}")
@@ -149,8 +157,7 @@ class PN532Driver(RfidDriver):
         if not self._pn532:
             return None
         try:
-            # timeout_sec=0.1 → non-blocking poll
-            uid = self._pn532.read_passive_target(timeout=0.1)
+            uid = self._pn532.read_passive_target(timeout=0.1)   # non-blocking poll
             if uid is None:
                 return None
             return "".join(f"{b:02X}" for b in uid)
@@ -158,21 +165,22 @@ class PN532Driver(RfidDriver):
             return None
 
     def teardown(self) -> None:
-        # adafruit-blinka handles I2C cleanup automatically
-        pass
+        pass   # adafruit-blinka cleans up I2C automatically
 
 
-# ── Service (driver-agnostic) ──────────────────────────────────────────────────
+# ── Service (driver-agnostic) ─────────────────────────────────────────────────
 
 class RfidService:
-    """
-    Async scan loop that wraps any RfidDriver.
-    Existing callers are unaffected – API identical to previous version.
+    """Async scan loop that wraps any RfidDriver.
+
+    The driver is injected via the constructor or resolved from config on the
+    first `setup()` call. Callers interact only with this class – the concrete
+    driver type is an implementation detail.
     """
 
-    def __init__(self, driver: Optional[RfidDriver] = None):
-        self._driver = driver
-        self._running = False
+    def __init__(self, driver: Optional[RfidDriver] = None) -> None:
+        self._driver   = driver
+        self._running  = False
         self._callback: Optional[RfidCallback] = None
         self._last_uid: Optional[str] = None
 
@@ -197,8 +205,7 @@ class RfidService:
                 await asyncio.sleep(5)
             return
 
-        driver_name = type(self._driver).__name__
-        logger.info(f"RFID scan loop started ({driver_name})")
+        logger.info(f"RFID scan loop started ({type(self._driver).__name__})")
 
         while self._running:
             try:
@@ -227,8 +234,8 @@ class RfidService:
         if self._callback:
             await self._callback(uid)
 
-    # backward-compat alias
     async def write_uid_mock(self, uid: str) -> None:
+        """Backward-compatibility alias for simulate_scan."""
         await self.simulate_scan(uid)
 
     def stop(self) -> None:
@@ -237,38 +244,41 @@ class RfidService:
             self._driver.teardown()
 
 
-# ── Factory ────────────────────────────────────────────────────────────────────
+# ── Factory ───────────────────────────────────────────────────────────────────
 
 def _build_driver_from_config() -> RfidDriver:
+    """Construct the RFID driver specified by RFID_TYPE in wundio.env.
+
+    Reads config exactly once, then instantiates the appropriate driver.
+    Falls back to a default-parameter driver if config is unavailable or the
+    driver constructor raises, so the service always has a valid object.
+    """
     try:
         from config import get_settings
-        cfg = get_settings()
-        rfid_type = getattr(cfg, "rfid_type", "rc522").lower()
+        cfg       = get_settings()
+        rfid_type = cfg.rfid_type.lower()
     except Exception:
         rfid_type = "rc522"
+        cfg       = None
 
     if rfid_type == "pn532":
         try:
-            from config import get_settings
-            cfg = get_settings()
-            return PN532Driver(i2c_bus=getattr(cfg, "rfid_i2c_bus", 1))
+            return PN532Driver(i2c_bus=cfg.rfid_i2c_bus if cfg else 1)
         except Exception:
             return PN532Driver()
 
     # Default: RC522
     try:
-        from config import get_settings
-        cfg = get_settings()
         return RC522Driver(
-            rst_pin = cfg.rfid_rst_pin,
-            spi_bus = cfg.rfid_spi_bus,
-            spi_dev = cfg.rfid_spi_dev,
+            rst_pin = cfg.rfid_rst_pin if cfg else 25,
+            spi_bus = cfg.rfid_spi_bus if cfg else 0,
+            spi_dev = cfg.rfid_spi_dev if cfg else 0,
         )
     except Exception:
         return RC522Driver()
 
 
-# ── Singleton ──────────────────────────────────────────────────────────────────
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
 _service: Optional[RfidService] = None
 

@@ -1,17 +1,26 @@
 """
-Wundio – Database Setup (SQLite via aiosqlite + SQLModel)
-Schema for Phase 0: Users, RFID Tags, Settings, System Log
+Wundio – Database Setup (SQLite via SQLModel)
+
+Schema:
+  users           – child profiles with volume preference
+  rfid_tags       – RFID UID → action mapping
+  system_settings – key/value runtime state (persisted across restarts)
+  system_events   – activity log (capped at MAX_EVENTS rows)
 """
 
 import logging
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone
-from sqlmodel import SQLModel, Field, create_engine, Session, select
-from sqlalchemy import event
+from sqlmodel import SQLModel, Field, create_engine, Session, select, func
+from sqlalchemy import event, delete
 
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of system_events rows kept in the database.
+# Older rows are pruned after every insert once this limit is exceeded.
+MAX_EVENTS = 500
 
 
 def _now() -> datetime:
@@ -104,12 +113,13 @@ def init_db(db_path: str = "/var/lib/wundio/wundio.db") -> None:
 
 
 def _seed_defaults() -> None:
+    """Insert default settings on first run; skip if keys already exist."""
     defaults = {
-        "setup_complete":   "false",
-        "wifi_configured":  "false",
-        "active_user_id":   "",
-        "current_volume":   "70",
-        "hotspot_active":   "false",
+        "setup_complete":  "false",
+        "wifi_configured": "false",
+        "active_user_id":  "",
+        "current_volume":  "70",
+        "hotspot_active":  "false",
     }
     with Session(get_engine()) as session:
         for key, value in defaults.items():
@@ -138,14 +148,29 @@ def set_setting(key: str, value: str) -> None:
 
 
 def log_event(source: str, message: str, level: str = "INFO") -> None:
+    """Append a system event and prune old rows when the cap is exceeded.
+
+    Uses a COUNT query to check the current row count cheaply, then removes
+    excess rows via a single DELETE … WHERE id IN (subquery) – no Python-side
+    iteration over the full table.
+    """
     with Session(get_engine()) as session:
         session.add(SystemEvent(level=level, source=source, message=message))
         session.commit()
-        count = session.exec(select(SystemEvent)).all()
-        if len(count) > 500:
-            oldest = session.exec(
-                select(SystemEvent).order_by(SystemEvent.id).limit(len(count) - 500)
-            ).all()
-            for e in oldest:
-                session.delete(e)
-            session.commit()
+
+        count: int = session.exec(select(func.count()).select_from(SystemEvent)).one()
+        if count > MAX_EVENTS:
+            # Find the id threshold: keep only the MAX_EVENTS newest rows.
+            # The oldest rows have the lowest ids (auto-increment).
+            excess = count - MAX_EVENTS
+            cutoff_id = session.exec(
+                select(SystemEvent.id)
+                .order_by(SystemEvent.id)
+                .limit(excess)
+                .offset(excess - 1)
+            ).first()
+            if cutoff_id is not None:
+                session.exec(
+                    delete(SystemEvent).where(SystemEvent.id <= cutoff_id)
+                )
+                session.commit()

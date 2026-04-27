@@ -1,6 +1,24 @@
 """
 Wundio – /api/system routes
+
+Endpoints:
+  GET  /api/system/status        – app info, hardware profile, feature flags
+  GET  /api/system/health        – liveness probe
+  GET  /api/system/events        – activity log (paginated)
+  POST /api/system/complete-setup – mark first-run setup done
+  POST /api/system/restart       – restart the wundio-core systemd service
+
+Note on /restart vs /api/system/actions/restart-service/run:
+  /restart returns a plain JSON response immediately (fire-and-forget).
+  It is intended for the Settings UI "Neu starten" button where the client
+  does not need a live log stream. Internally it delegates to the same
+  whitelist entry in system_actions so the subprocess logic lives in one place.
+  The /actions SSE endpoint remains available for the admin panel.
 """
+import asyncio
+import logging
+import subprocess
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -9,6 +27,7 @@ from database import get_setting, log_event
 from services.hardware import get_profile
 
 router = APIRouter(tags=["system"])
+logger = logging.getLogger(__name__)
 
 
 class SystemStatus(BaseModel):
@@ -22,16 +41,15 @@ class SystemStatus(BaseModel):
 
 
 def _get_local_ip() -> str:
-    """Get wlan0 IP address for displaying in UI."""
-    import subprocess
+    """Return the wlan0 IPv4 address, or a placeholder when unavailable."""
     try:
         result = subprocess.run(
             ["ip", "-4", "addr", "show", "wlan0"],
-            capture_output=True, text=True, timeout=2
+            capture_output=True, text=True, timeout=2,
         )
         for line in result.stdout.splitlines():
             if "inet " in line:
-                return line.split()[1].split('/')[0]
+                return line.split()[1].split("/")[0]
     except Exception:
         pass
     return "192.168.1.XXX"
@@ -39,21 +57,21 @@ def _get_local_ip() -> str:
 
 @router.get("/status", response_model=SystemStatus)
 async def get_status():
-    cfg = get_settings()
-    hw = get_profile()
+    cfg          = get_settings()
+    hw           = get_profile()
     profile_dict = hw.to_dict()
     return SystemStatus(
-        app_name=cfg.app_name,
-        version=cfg.app_version,
-        setup_complete=get_setting("setup_complete") == "true",
-        hotspot_active=get_setting("hotspot_active") == "true",
-        local_ip=_get_local_ip(),
-        hardware={
-            "model": profile_dict["model"],
-            "ram_mb": profile_dict["ram_mb"],
+        app_name       = cfg.app_name,
+        version        = cfg.app_version,
+        setup_complete = get_setting("setup_complete") == "true",
+        hotspot_active = get_setting("hotspot_active") == "true",
+        local_ip       = _get_local_ip(),
+        hardware       = {
+            "model":         profile_dict["model"],
+            "ram_mb":        profile_dict["ram_mb"],
             "pi_generation": profile_dict["pi_generation"],
         },
-        features=profile_dict["features"],
+        features = profile_dict["features"],
     )
 
 
@@ -76,9 +94,9 @@ async def get_events(limit: int = 100, source: str = ""):
     return [
         {
             "id":        e.id,
-            "level":     e.level   or "INFO",
-            "source":    e.source  or "system",
-            "message":   e.message or "",
+            "level":     e.level    or "INFO",
+            "source":    e.source   or "system",
+            "message":   e.message  or "",
             "timestamp": e.created_at.isoformat() if e.created_at else None,
         }
         for e in events
@@ -95,13 +113,19 @@ async def complete_setup():
 
 @router.post("/restart")
 async def restart_service():
-    """Restart wundio-core service to apply config changes."""
-    import subprocess
-    import asyncio
+    """Restart the wundio-core systemd service (fire-and-forget).
+
+    Returns immediately with a JSON acknowledgement. The restart is delayed by
+    one second so the HTTP response can be delivered before the process exits.
+
+    For a live log stream of the restart, use:
+      POST /api/system/actions/restart-service/run
+    """
     log_event("system", "Neustart des Dienstes angefordert")
-    # Delayed restart so the response can be sent first
-    async def _restart():
+
+    async def _restart() -> None:
         await asyncio.sleep(1)
         subprocess.Popen(["systemctl", "restart", "wundio-core"])
+
     asyncio.create_task(_restart())
     return {"ok": True, "message": "Wundio wird neu gestartet..."}

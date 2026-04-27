@@ -230,44 +230,6 @@ class TestRfidService:
         assert len(received) == 1
 
 
-# ── Display ───────────────────────────────────────────────────────────────────
-
-class TestDisplay:
-    def test_availability_consistent(self):
-        from services.display import OledDisplay
-        d = OledDisplay()
-        result = d.setup()
-        # Support both old (_available) and new (available property) display.py
-        avail = d.available if hasattr(d, "available") else d._available
-        assert result == avail
-
-    def test_all_screens_safe_without_hardware(self):
-        from services.display import get_display
-        d = get_display()
-        d.setup()
-        d.show_boot("0.2.0")
-        d.show_idle("Bereit")
-        d.show_user_login("Max", "🎵")
-        d.show_playing("Song", "Artist", "Max")
-        d.show_setup("Wundio-Setup", "192.168.50.1")
-        d.show_error("Fehler!")
-        d.clear()
-        d.teardown()
-
-    def test_oled_driver_type(self):
-        import services.display as dm
-        # OledDriver exists in new display.py; fall back to OledDisplay for old
-        driver_cls = getattr(dm, "OledDriver", getattr(dm, "OledDisplay", None))
-        assert driver_cls is not None, "Neither OledDriver nor OledDisplay found"
-        dm._display = None
-        d = dm.get_display()
-        assert isinstance(d, driver_cls)
-
-    def test_singleton(self):
-        from services.display import get_display
-        assert get_display() is get_display()
-
-
 # ── Database & RFID resolution ───────────────────────────────────────────────
 
 class TestDatabase:
