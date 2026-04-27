@@ -1,16 +1,18 @@
 """
-Additional database tests – log_event cap behaviour.
-Append these methods to the TestDatabase class in tests/phase0/test_core.py.
+Database log_event cap tests.
+
+Complements TestDatabase in tests/phase0/test_core.py.
+Can be merged there or kept as a separate module.
 """
+from database import MAX_EVENTS
 
-# ── Patch: add to class TestDatabase in tests/phase0/test_core.py ────────────
 
+class TestLogEventCap:
     def test_log_event_respects_max_cap(self, tmp_db):
         """log_event must not keep more than MAX_EVENTS rows."""
-        from database import log_event, get_engine, MAX_EVENTS, SystemEvent
+        from database import log_event, get_engine, SystemEvent
         from sqlmodel import Session, select, func
 
-        # Insert MAX_EVENTS + 10 events
         for i in range(MAX_EVENTS + 10):
             log_event("test", f"msg {i}")
 
@@ -23,7 +25,7 @@ Append these methods to the TestDatabase class in tests/phase0/test_core.py.
 
     def test_log_event_keeps_newest(self, tmp_db):
         """After pruning, the newest events must be retained."""
-        from database import log_event, get_engine, MAX_EVENTS, SystemEvent
+        from database import log_event, get_engine, SystemEvent
         from sqlmodel import Session, select
 
         for i in range(MAX_EVENTS + 5):
@@ -35,40 +37,40 @@ Append these methods to the TestDatabase class in tests/phase0/test_core.py.
             ).all()
 
         messages = [e.message for e in events]
-        # The most recent messages should survive
         for i in range(MAX_EVENTS, MAX_EVENTS + 5):
-            assert f"msg {i}" in messages, f"'msg {i}' was pruned but should have been kept"
+            assert f"msg {i}" in messages, (
+                f"'msg {i}' was pruned but should have been kept"
+            )
 
-    def test_log_event_count_stays_o1(self, tmp_db, monkeypatch):
-        """log_event must use COUNT(*), never load all rows into Python memory.
+    def test_log_event_does_not_load_all_rows(self, tmp_db):
+        """log_event cleanup must use COUNT(*), not a full table scan.
 
-        We verify this indirectly: the cleanup path must not call .all() on a
-        full-table select. We monkeypatch Session.exec to track query strings.
+        Verified by checking that no query selects all system_events columns
+        without a LIMIT or COUNT aggregate during the cleanup path.
         """
         import database as db_mod
-        from sqlmodel import select, func
-        from database import SystemEvent
+        from sqlmodel import Session as _Session
 
-        all_calls = []
-        original_exec = db_mod.Session.exec
+        all_queries: list[str] = []
+        original_exec = _Session.exec
 
         def tracking_exec(self, statement, *args, **kwargs):
-            all_calls.append(str(statement))
+            all_queries.append(str(statement))
             return original_exec(self, statement, *args, **kwargs)
 
-        monkeypatch.setattr(db_mod.Session, "exec", tracking_exec)
+        _Session.exec = tracking_exec
+        try:
+            for i in range(db_mod.MAX_EVENTS + 2):
+                db_mod.log_event("test", f"m{i}")
+        finally:
+            _Session.exec = original_exec
 
-        # Trigger the cleanup branch by going over the cap
-        for i in range(db_mod.MAX_EVENTS + 2):
-            db_mod.log_event("test", f"m{i}")
-
-        # No query should select all columns from system_events without a LIMIT/COUNT
         full_table_selects = [
-            q for q in all_calls
+            q for q in all_queries
             if "system_events" in q.lower()
             and "count" not in q.lower()
             and "limit" not in q.lower()
         ]
         assert not full_table_selects, (
-            f"Found full-table select(s) in log_event: {full_table_selects}"
+            f"Full-table select(s) found in log_event: {full_table_selects}"
         )
