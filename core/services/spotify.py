@@ -303,7 +303,66 @@ class SpotifyService:
         blocking the event loop during the Spotify API calls.
         """
         return await asyncio.to_thread(self.play_uri, spotify_uri)
-
+    
+    # ── Playback Control Methods. ─────────────────────────────────────────────────────────────────
+     
+    def _send_api(self, method: str, path: str, body: dict | None = None) -> bool:
+        """
+        Generic Spotify Web API call helper.
+        Handles token refresh internally. Returns True on success.
+        """
+        from config import get_settings
+        cfg = get_settings()
+        client_id     = getattr(cfg, "spotify_client_id",     "")
+        client_secret = getattr(cfg, "spotify_client_secret", "")
+        refresh_token = getattr(cfg, "spotify_refresh_token", "")
+ 
+        if not all([client_id, client_secret, refresh_token]):
+            logger.debug("Spotify not configured – skipping %s %s", method, path)
+            return False
+ 
+        try:
+            access_token = self._fetch_access_token(client_id, client_secret, refresh_token)
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type":  "application/json",
+            }
+            data = json.dumps(body).encode() if body else None
+            req = urllib.request.Request(
+                f"https://api.spotify.com/v1{path}",
+                data=data,
+                headers=headers,
+                method=method,
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                logger.debug("%s %s → HTTP %d", method, path, resp.status)
+            return True
+        except Exception as exc:
+            logger.warning("Spotify API %s %s failed: %s", method, path, exc)
+            return False
+ 
+    def pause(self) -> bool:
+        """Pause playback on the active Spotify device."""
+        return self._send_api("PUT", "/me/player/pause")
+ 
+    def resume(self) -> bool:
+        """Resume playback on the active Spotify device."""
+        return self._send_api("PUT", "/me/player/play")
+ 
+    def next_track(self) -> bool:
+        """Skip to next track."""
+        return self._send_api("POST", "/me/player/next")
+ 
+    def prev_track(self) -> bool:
+        """Skip to previous track."""
+        return self._send_api("POST", "/me/player/previous")
+ 
+    def toggle_play_pause(self) -> bool:
+        """Toggle play/pause based on current state."""
+        self.refresh_state()
+        if self._state.playing:
+            return self.pause()
+        return self.resume()
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 

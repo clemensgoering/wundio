@@ -35,6 +35,9 @@ from services.spotify import get_spotify_service
 from services.ai.voice import get_voice_orchestrator
 from services.buttons import build_default_service
 from api.routes.system_actions import router as system_actions_router
+from api.routes.feedback_routes import router as feedback_router
+from services.feedback import feedback, get_feedback_bus
+
 from api.routes import (
     system,
     users,
@@ -100,36 +103,30 @@ def _sync_network_state() -> None:
 # ── RFID callback ─────────────────────────────────────────────────────────────
 
 async def _on_rfid_scan(uid: str) -> None:
-    """Handle a scanned RFID tag UID.
-
-    Called by the RFID polling loop. Resolves the UID to an action (user login,
-    playlist play, or hardware action) and dispatches accordingly.
-
-    The last scanned UID and timestamp are always written to the DB so the web
-    UI can show it in the tag-assignment modal (polling /api/rfid/last-scan).
-    """
+    from database import get_engine
+    from models.user import resolve_rfid_action
     from sqlmodel import Session
-
     display = get_display()
     spotify = get_spotify_service()
-
+ 
+    import time as _time
     set_setting("rfid_last_scan_uid", uid)
-    set_setting("rfid_last_scan_ts",  str(int(time.time())))
-
+    set_setting("rfid_last_scan_ts",  str(int(_time.time())))
+ 
+    # Immediate feedback: scanning
+    await feedback("rfid_scan", f"RFID erkannt: {uid[:8]}…", color="amber", duration_ms=1000)
+ 
     with Session(get_engine()) as session:
         action = resolve_rfid_action(session, uid)
-
+ 
     if action is None:
         display.show_error("Unbekannter Tag")
-        log_event(
-            "rfid",
-            f"Unbekannte Karte/Figur aufgelegt (UID: {uid}) – noch nicht zugewiesen",
-            level="WARN",
-        )
+        await feedback("rfid_unknown", "Unbekannter Tag", color="red", duration_ms=800)
+        log_event("rfid", f"Unbekannte Karte/Figur aufgelegt (UID: {uid})", level="WARN")
         return
-
+ 
     if action["type"] == "user_login":
-        from database import User
+        from database import get_engine, User
         from sqlmodel import Session as _Session
         with _Session(get_engine()) as s:
             user = s.get(User, action["user_id"])
@@ -137,60 +134,78 @@ async def _on_rfid_scan(uid: str) -> None:
                 set_setting("active_user_id", str(user.id))
                 spotify.set_volume(user.volume)
                 display.show_user_login(user.display_name)
-                log_event("rfid", f"Kind eingeloggt: {user.display_name} (Lautstärke: {user.volume}%)")
-
+                await feedback(
+                    "user_login",
+                    f"Hallo {user.display_name}!",
+                    color="teal", duration_ms=2000,
+                    data={"name": user.display_name},
+                )
+                log_event("rfid", f"Kind eingeloggt: {user.display_name}")
+ 
     elif action["type"] == "playlist":
-        uri       = action.get("spotify_uri", "")
+        uri = action.get("spotify_uri", "")
         tag_label = action.get("label", "Playlist")
         if uri:
-            # Always update the display immediately – play_uri may take up to 5 s
-            display.show_idle(tag_label)
-            played = await spotify.play_uri(uri)   # non-blocking via asyncio.to_thread
+            played = await spotify.play_uri_async(uri)
             if played:
+                display.show_idle(tag_label)
+                await feedback(
+                    "playback_start",
+                    tag_label,
+                    color="teal", duration_ms=2000,
+                    data={"uri": uri, "label": tag_label},
+                )
                 log_event("rfid", f"Playlist gestartet: {tag_label} ({uri})")
             else:
-                log_event(
-                    "rfid",
-                    f"Playlist-Tag erkannt: {tag_label} – Spotify Web API nicht konfiguriert. "
-                    "SPOTIFY_CLIENT_ID etc. in /etc/wundio/wundio.env eintragen.",
-                    level="WARN",
-                )
-        else:
-            log_event("rfid", f"Playlist-Tag {uid} hat keine URI – bitte im Dashboard ergänzen", level="WARN")
-
+                await feedback("error", "Spotify nicht verbunden", color="red", duration_ms=1500)
+                log_event("rfid", f"Spotify Web API nicht konfiguriert", level="WARN")
+ 
     elif action["type"] == "action":
         act = action["action"]
         if act == "stop":
             spotify.stop()
+            await feedback("playback_stop", "Gestoppt", color="white", duration_ms=500)
         elif act == "vol_up":
-            spotify.set_volume(min(100, spotify.get_state().volume + 10))
+            new_vol = min(100, spotify.get_state().volume + 10)
+            spotify.set_volume(new_vol)
+            await feedback("volume_change", f"Lautstärke {new_vol}%", color="blue", duration_ms=800)
         elif act == "vol_down":
-            spotify.set_volume(max(0, spotify.get_state().volume - 10))
+            new_vol = max(0, spotify.get_state().volume - 10)
+            spotify.set_volume(new_vol)
+            await feedback("volume_change", f"Lautstärke {new_vol}%", color="blue", duration_ms=800)
 
 
 # ── Button callback ───────────────────────────────────────────────────────────
 
 async def _on_button_press(name: str) -> None:
-    """Handle a physical button press.
-
-    Volume is controlled here by calling set_volume() directly.
-
-    play_pause / next / prev are intentionally not handled in software:
-    librespot registers as a Spotify Connect device and receives these commands
-    natively via the Spotify protocol when the GPIO buttons trigger the matching
-    media-key events. Adding a software layer here would duplicate that logic.
-
-    If offline / non-Connect playback is needed in a future phase, keyboard
-    event injection (e.g. via `evdev`) is the correct approach – all three
-    buttons would call the same /api/playback/* endpoints the web UI uses.
-    """
     spotify = get_spotify_service()
+    state   = spotify.get_state()
+ 
     log_event("buttons", f"Taste: {name.replace('_', ' ')} gedrückt")
-
+ 
     if name == "vol_up":
-        spotify.set_volume(min(100, spotify.get_state().volume + 5))
+        new_vol = min(100, state.volume + 5)
+        spotify.set_volume(new_vol)
+        await feedback("volume_change", f"Lautstärke {new_vol}%", color="blue", duration_ms=600)
     elif name == "vol_down":
-        spotify.set_volume(max(0, spotify.get_state().volume - 5))
+        new_vol = max(0, state.volume - 5)
+        spotify.set_volume(new_vol)
+        await feedback("volume_change", f"Lautstärke {new_vol}%", color="blue", duration_ms=600)
+    elif name == "play_pause":
+        await asyncio.to_thread(spotify.toggle_play_pause)
+        is_playing = not state.playing
+        await feedback(
+            "playback_start" if is_playing else "playback_pause",
+            "Abspielen" if is_playing else "Pause",
+            color="teal" if is_playing else "white",
+            duration_ms=800,
+        )
+    elif name == "next":
+        await asyncio.to_thread(spotify.next_track)
+        await feedback("track_next", "Nächster Titel", color="teal", duration_ms=600)
+    elif name == "prev":
+        await asyncio.to_thread(spotify.prev_track)
+        await feedback("track_prev", "Vorheriger Titel", color="teal", duration_ms=600)
 
 
 # ── Voice callback ────────────────────────────────────────────────────────────
@@ -294,6 +309,7 @@ async def lifespan(app: FastAPI):
     else:
         display.show_idle()
         log_event("system", "Bereit")
+        await feedback("system_ready", "Wundio bereit", color="teal", duration_ms=2000)
 
     logger.info(f"Wundio ready – http://{cfg.host}:{cfg.port}")
     logger.info(f"Hardware: {hw.model} | Features: {hw.to_dict()['features']}")
@@ -333,6 +349,7 @@ app.include_router(wifi.router,               prefix="/api/wifi")
 app.include_router(voice.router,              prefix="/api/voice")
 app.include_router(spotify_auth.router,       prefix="/api/spotify")
 app.include_router(system_actions_router,     prefix="/api/system")
+app.include_router(feedback_router, prefix="/api/feedback")
 
 _static = Path(cfg.static_dir)
 if _static.exists():

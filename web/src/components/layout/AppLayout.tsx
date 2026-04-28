@@ -2,7 +2,8 @@ import { NavLink } from "react-router-dom";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { SystemStatus } from "@/types/api";
-
+import FeedbackIndicator from "@/components/FeedbackIndicator";
+ 
 const fetcher = () => api.status() as Promise<SystemStatus>;
 
 const NAV = [
@@ -73,6 +74,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <main className="flex-1 p-8 overflow-auto">
           {children}
         </main>
+        <FeedbackIndicator />
       </div>
     </div>
   );
