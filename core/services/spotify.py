@@ -67,12 +67,15 @@ class SpotifyService:
     OAuth credentials stored in wundio.env.
     """
 
-    def __init__(self, device_name: str = "Wundio", bitrate: int = 160) -> None:
-        self._device_name = device_name
+    def __init__(self, bitrate: int = 160) -> None:
         self._bitrate     = bitrate
         self._process: Optional[asyncio.subprocess.Process] = None
         self._state       = PlaybackState()
         self._available   = False
+        from config import get_settings
+        cfg = get_settings()
+        self._device_name: str = getattr(cfg, "spotify_device_name", "") or "Wundio"
+        logger.info("SpotifyService init – device_name='%s'", self._device_name)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -259,48 +262,159 @@ class SpotifyService:
         with urllib.request.urlopen(req, timeout=5) as resp:
             logger.info(f"Spotify playback started: {spotify_uri} (HTTP {resp.status})")
 
-    def _play_uri_sync(self, spotify_uri: str) -> bool:
-        """Blocking implementation of play_uri – runs in a thread pool.
-
-        Separated so that the async wrapper can use asyncio.to_thread without
-        capturing `self` in a closure, and so unit tests can call it directly.
+    def play_uri(self, spotify_uri: str) -> bool:
         """
-        cfg           = get_settings()
-        client_id     = cfg.spotify_client_id
-        client_secret = cfg.spotify_client_secret
-        refresh_token = cfg.spotify_refresh_token
+        Trigger playback of a Spotify URI exclusively on this Pi (librespot device).
 
-        if not all([client_id, client_secret, refresh_token]):
-            logger.info(
-                f"Spotify Web API not configured – cannot auto-play {spotify_uri}. "
-                "Add SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN "
-                "to /etc/wundio/wundio.env"
+        Strategy:
+          1. Refresh access token
+          2. Fetch available devices
+          3. Find librespot device by SPOTIFY_DEVICE_NAME (exact or substring match)
+          4. If found but not active → transfer playback to it first (wakes it up)
+          5. If not found → librespot may not have registered yet; wait + retry once
+          6. Start playback with explicit device_id → never falls back to other devices
+
+        Returns True if playback was successfully started.
+        """
+        import urllib.request
+        import urllib.parse
+        import base64
+        import json as _json
+        import time as _time
+
+        try:
+            from config import get_settings
+            cfg = get_settings()
+            client_id     = getattr(cfg, "spotify_client_id",     "")
+            client_secret = getattr(cfg, "spotify_client_secret", "")
+            refresh_token = getattr(cfg, "spotify_refresh_token", "")
+
+            if not all([client_id, client_secret, refresh_token]):
+                logger.info(
+                    "Spotify Web API not configured – cannot play %s. "
+                    "Set SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN "
+                    "in /etc/wundio/wundio.env",
+                    spotify_uri,
+                )
+                return False
+
+            # ── 1. Refresh access token ───────────────────────────────────────
+            creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+            token_req = urllib.request.Request(
+                "https://accounts.spotify.com/api/token",
+                data=urllib.parse.urlencode({
+                    "grant_type":    "refresh_token",
+                    "refresh_token": refresh_token,
+                }).encode(),
+                headers={
+                    "Authorization": f"Basic {creds}",
+                    "Content-Type":  "application/x-www-form-urlencoded",
+                },
             )
-            return False
+            with urllib.request.urlopen(token_req, timeout=8) as resp:
+                token_data = _json.loads(resp.read())
+            access_token = token_data.get("access_token", "")
+            if not access_token:
+                logger.warning("Spotify token refresh failed")
+                return False
 
-        try:
-            access_token = self._fetch_access_token(client_id, client_secret, refresh_token)
-        except Exception as e:
-            logger.warning(f"Spotify token refresh failed: {e}")
-            return False
+            auth_header = {"Authorization": f"Bearer {access_token}"}
 
-        try:
-            device_id = self._find_device_id(access_token)
-        except Exception as e:
-            logger.warning(f"Spotify device lookup failed: {e}")
-            return False
+            # ── 2. Find librespot device (retry once if not yet visible) ──────
+            device_name = self._device_name.lower()
+            device_id = None
+            device_is_active = False
 
-        if not device_id:
-            logger.warning("No Spotify device found – is librespot running?")
-            return False
+            for attempt in range(2):
+                devices_req = urllib.request.Request(
+                    "https://api.spotify.com/v1/me/player/devices",
+                    headers=auth_header,
+                )
+                with urllib.request.urlopen(devices_req, timeout=8) as resp:
+                    all_devices = _json.loads(resp.read()).get("devices", [])
 
-        try:
-            self._send_play_request(access_token, device_id, spotify_uri)
-        except Exception as e:
-            logger.warning(f"Spotify play request failed: {e}")
-            return False
+                logger.debug(
+                    "Spotify devices (attempt %d): %s",
+                    attempt + 1,
+                    [d.get("name") for d in all_devices],
+                )
 
-        return True
+                for d in all_devices:
+                    if device_name in d.get("name", "").lower():
+                        device_id = d["id"]
+                        device_is_active = d.get("is_active", False)
+                        break
+
+                if device_id:
+                    break
+
+                if attempt == 0:
+                    # librespot may need a moment after startup
+                    logger.info(
+                        "Wundio device '%s' not visible yet – waiting 2s then retrying",
+                        self._device_name,
+                    )
+                    _time.sleep(2)
+
+            if not device_id:
+                logger.warning(
+                    "Spotify device '%s' not found in device list. "
+                    "Is librespot running? Available: %s",
+                    self._device_name,
+                    [d.get("name") for d in all_devices],
+                )
+                return False
+
+            # ── 3. Transfer playback to this device if not already active ─────
+            # This wakes up librespot so it becomes the active player.
+            # Without this, play?device_id= can still be ignored by the API
+            # if another device is currently active.
+            if not device_is_active:
+                logger.info(
+                    "Transferring playback to '%s' (device_id=%s)",
+                    self._device_name, device_id,
+                )
+                transfer_req = urllib.request.Request(
+                    "https://api.spotify.com/v1/me/player",
+                    data=_json.dumps({
+                        "device_ids": [device_id],
+                        "play": False,   # don't auto-start; we send play command next
+                    }).encode(),
+                    headers={**auth_header, "Content-Type": "application/json"},
+                    method="PUT",
+                )
+                try:
+                    with urllib.request.urlopen(transfer_req, timeout=8) as r:
+                        logger.debug("Transfer playback status: %d", r.status)
+                    # Brief pause so Spotify registers the transfer before play
+                    _time.sleep(0.5)
+                except Exception as exc:
+                    logger.warning("Transfer playback failed (non-fatal): %s", exc)
+
+            # ── 4. Start playback on this device ──────────────────────────────
+            play_body: dict = {}
+            if "track" in spotify_uri:
+                play_body["uris"] = [spotify_uri]
+            else:
+                # playlist or album
+                play_body["context_uri"] = spotify_uri
+
+            play_req = urllib.request.Request(
+                f"https://api.spotify.com/v1/me/player/play?device_id={device_id}",
+                data=_json.dumps(play_body).encode(),
+                headers={**auth_header, "Content-Type": "application/json"},
+                method="PUT",
+            )
+            with urllib.request.urlopen(play_req, timeout=8) as resp:
+                logger.info(
+                    "Playback started: %s on '%s' (status %d)",
+                    spotify_uri, self._device_name, resp.status,
+                )
+            return True
+
+        except Exception as exc:
+            logger.warning("Spotify play_uri failed: %s", exc)
+            return False
 
     async def play_uri(self, spotify_uri: str) -> bool:
         """Trigger playback of a Spotify URI on this device (non-blocking).

@@ -1,33 +1,34 @@
 import { useState, useRef, useEffect } from "react";
 import useSWR from "swr";
 import { Card, Button, Spinner } from "@/components/ui";
+import ServicesStatus from "./ServicesStatus";
 
 interface ActionInfo {
-  key:                string;
-  label:              string;
-  destructive:        boolean;
-  estimated_seconds:  number;
-  available:          boolean;
+  key: string;
+  label: string;
+  destructive: boolean;
+  estimated_seconds: number;
+  available: boolean;
 }
 
 type RunState = "idle" | "confirm" | "running" | "done" | "error";
 
 interface ActionState {
-  runState:  RunState;
-  lines:     string[];
-  exitOk:    boolean | null;
+  runState: RunState;
+  lines: string[];
+  exitOk: boolean | null;
 }
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // Visual config per action key
 const ACTION_META: Record<string, { icon: string; description: string; danger?: boolean }> = {
-  "pull-quick":     { icon: "⚡", description: "Zieht neuesten Code von GitHub (~30 Sek). Kein Frontend-Rebuild." },
-  "pull-full":      { icon: "🔄", description: "Code + React-Frontend neu bauen. Pi 3: ~15 Min, Pi 4: ~2 Min." },
-  "system-update":  { icon: "📦", description: "Aktualisiert OS-Pakete und Python-Bibliotheken." },
-  "restart-service":{ icon: "🔁", description: "Startet wundio-core neu – z.B. nach Konfigurationsänderungen." },
-  "reboot":         { icon: "🔌", description: "Fährt den Raspberry Pi neu hoch.", danger: true },
-  "uninstall":      { icon: "🗑️", description: "Entfernt Wundio vollständig vom System.", danger: true },
+  "pull-quick": { icon: "⚡", description: "Zieht neuesten Code von GitHub (~30 Sek). Kein Frontend-Rebuild." },
+  "pull-full": { icon: "🔄", description: "Code + React-Frontend neu bauen. Pi 3: ~15 Min, Pi 4: ~2 Min." },
+  "system-update": { icon: "📦", description: "Aktualisiert OS-Pakete und Python-Bibliotheken." },
+  "restart-service": { icon: "🔁", description: "Startet wundio-core neu – z.B. nach Konfigurationsänderungen." },
+  "reboot": { icon: "🔌", description: "Fährt den Raspberry Pi neu hoch.", danger: true },
+  "uninstall": { icon: "🗑️", description: "Entfernt Wundio vollständig vom System.", danger: true },
 };
 
 export default function SystemPage() {
@@ -92,9 +93,9 @@ export default function SystemPage() {
 
         for (const chunk of parts) {
           const eventMatch = chunk.match(/^event:\s*(.+)$/m);
-          const dataMatch  = chunk.match(/^data:\s*(.*)$/m);
+          const dataMatch = chunk.match(/^data:\s*(.*)$/m);
           const event = eventMatch?.[1]?.trim();
-          const data  = dataMatch?.[1]?.replace(/\\n/g, "\n").trim() ?? "";
+          const data = dataMatch?.[1]?.replace(/\\n/g, "\n").trim() ?? "";
 
           if (event === "output" && data) {
             setStates((prev) => {
@@ -141,7 +142,7 @@ export default function SystemPage() {
         logRefs={logRefs}
         onAction={handleClick}
         onCancel={(key) => setState(key, { runState: "idle" })}
-        onReset={(key)  => setState(key, { runState: "idle", lines: [], exitOk: null })}
+        onReset={(key) => setState(key, { runState: "idle", lines: [], exitOk: null })}
       />
 
       <ActionGroup
@@ -152,7 +153,7 @@ export default function SystemPage() {
         logRefs={logRefs}
         onAction={handleClick}
         onCancel={(key) => setState(key, { runState: "idle" })}
-        onReset={(key)  => setState(key, { runState: "idle", lines: [], exitOk: null })}
+        onReset={(key) => setState(key, { runState: "idle", lines: [], exitOk: null })}
       />
 
       <ActionGroup
@@ -163,7 +164,7 @@ export default function SystemPage() {
         logRefs={logRefs}
         onAction={handleClick}
         onCancel={(key) => setState(key, { runState: "idle" })}
-        onReset={(key)  => setState(key, { runState: "idle", lines: [], exitOk: null })}
+        onReset={(key) => setState(key, { runState: "idle", lines: [], exitOk: null })}
       />
     </div>
   );
@@ -174,14 +175,14 @@ export default function SystemPage() {
 function ActionGroup({
   title, keys, actions, states, logRefs, onAction, onCancel, onReset,
 }: {
-  title:    string;
-  keys:     string[];
-  actions:  ActionInfo[];
-  states:   Record<string, ActionState>;
-  logRefs:  React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  title: string;
+  keys: string[];
+  actions: ActionInfo[];
+  states: Record<string, ActionState>;
+  logRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
   onAction: (a: ActionInfo) => void;
   onCancel: (key: string) => void;
-  onReset:  (key: string) => void;
+  onReset: (key: string) => void;
 }) {
   const filtered = actions.filter((a) => keys.includes(a.key));
   if (!filtered.length) return null;
@@ -209,12 +210,12 @@ function ActionGroup({
 function ActionRow({
   action, state, logRef, onAction, onCancel, onReset,
 }: {
-  action:   ActionInfo;
-  state:    ActionState;
-  logRef:   (el: HTMLDivElement | null) => void;
+  action: ActionInfo;
+  state: ActionState;
+  logRef: (el: HTMLDivElement | null) => void;
   onAction: () => void;
   onCancel: () => void;
-  onReset:  () => void;
+  onReset: () => void;
 }) {
   const meta = ACTION_META[action.key] ?? { icon: "⚙️", description: "" };
   const { runState, lines } = state;
@@ -285,6 +286,9 @@ function ActionRow({
           </button>
         </div>
       </div>
+      
+      {/* Service & Spotify device status */}
+      <ServicesStatus />
 
       {/* Confirm warning */}
       {runState === "confirm" && (

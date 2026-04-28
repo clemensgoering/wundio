@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     spotify_client_id:     str = ""
     spotify_client_secret: str = ""
     spotify_refresh_token: str = ""
+    spotify_device_name:   str = "Wundio"
     spotify_redirect_uri:  str = ""
     pi_local_ip: str = ""
 
