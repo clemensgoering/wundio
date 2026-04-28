@@ -1,5 +1,4 @@
 // web/src/pages/System/ServicesStatus.tsx
-// Füge diesen Block in SystemPage/index.tsx ein, direkt unter dem <div> Header-Block.
 
 import { Card } from "@/components/ui";
 import useSWR from "swr";
@@ -49,8 +48,8 @@ export default function ServicesStatus() {
 
         {/* wundio-librespot */}
         <ServiceRow
-          label="wundio-librespot"
-          description="Spotify Connect Endpunkt auf diesem Pi"
+          label="librespot"
+          description="Spotify Connect Prozess (läuft als Teil von wundio-core)"
           active={data?.services["wundio-librespot"]?.active}
           since={data?.services["wundio-librespot"]?.since}
           loading={isLoading}
@@ -150,11 +149,3 @@ function ServiceRow({
     </div>
   );
 }
-
-// ── Usage in SystemPage/index.tsx ─────────────────────────────────────────────
-// Import: import ServicesStatus from "./ServicesStatus";
-// Einfügen direkt nach dem Header-Block, vor den ActionGroups:
-//
-// <ServicesStatus />
-//
-// Card muss aus @/components/ui importiert sein (bereits vorhanden).

@@ -569,6 +569,7 @@ chmod +x "${INSTALL_DIR}/scripts/"*.sh
 # Create symlinks in /usr/local/bin for easy access
 ln -sf "${INSTALL_DIR}/scripts/wundio-pull.sh" /usr/local/bin/wundio-pull
 ln -sf "${INSTALL_DIR}/scripts/update.sh" /usr/local/bin/wundio-update
+ln -sf "${INSTALL_DIR}/scripts/uninstall.sh" /usr/local/bin/wundio-uninstall
 
 ok "Management commands ready"
 info ""

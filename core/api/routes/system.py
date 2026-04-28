@@ -135,48 +135,58 @@ async def restart_service():
 async def get_services_status():
     """
     Returns runtime status of system services and Spotify device visibility.
-    Used by the System page to show librespot / wundio-core health.
     """
     import subprocess
     import json as _json
     import urllib.request
+    import base64
+    import urllib.parse
 
     def _systemctl_status(service: str) -> dict:
-        """Returns {active, running, since} for a systemd service."""
         try:
             r = subprocess.run(
                 ["systemctl", "is-active", service],
                 capture_output=True, text=True, timeout=3,
             )
             active = r.stdout.strip() == "active"
-
-            # Get start time from show
-            r2 = subprocess.run(
-                ["systemctl", "show", service, "--property=ActiveEnterTimestamp"],
-                capture_output=True, text=True, timeout=3,
-            )
             since = ""
-            for line in r2.stdout.splitlines():
-                if line.startswith("ActiveEnterTimestamp="):
-                    since = line.split("=", 1)[1].strip()
-                    break
-
+            if active:
+                r2 = subprocess.run(
+                    ["systemctl", "show", service, "--property=ActiveEnterTimestamp"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                for line in r2.stdout.splitlines():
+                    if line.startswith("ActiveEnterTimestamp="):
+                        since = line.split("=", 1)[1].strip()
+                        break
             return {"active": active, "since": since}
         except Exception:
             return {"active": False, "since": ""}
 
+    def _librespot_process_status() -> dict:
+        """
+        librespot runs as a child process of wundio-core, not a systemd unit.
+        Detect via pgrep instead of systemctl.
+        """
+        try:
+            r = subprocess.run(
+                ["pgrep", "-x", "librespot"],
+                capture_output=True, timeout=3,
+            )
+            return {"active": r.returncode == 0, "since": "", "mode": "process"}
+        except Exception:
+            return {"active": False, "since": "", "mode": "process"}
+
     services = {
-        "wundio-core":     _systemctl_status("wundio-core"),
-        "wundio-librespot": _systemctl_status("wundio-librespot"),
+        "wundio-core":      _systemctl_status("wundio-core"),
+        "wundio-librespot": _librespot_process_status(),
     }
 
-    # Check if librespot device is visible to Spotify Web API
+    # Spotify device visibility
     spotify_device: dict = {"found": False, "name": "", "is_active": False, "error": ""}
     try:
         from config import get_settings
         from services.spotify import get_spotify_service
-        import base64
-        import urllib.parse
 
         cfg = get_settings()
         client_id     = getattr(cfg, "spotify_client_id",     "")
@@ -200,7 +210,8 @@ async def get_services_status():
                 access_token = _json.loads(resp.read()).get("access_token", "")
 
             if access_token:
-                device_name = get_spotify_service()._device_name.lower()
+                svc = get_spotify_service()
+                device_name = svc._device_name.lower()
                 devices_req = urllib.request.Request(
                     "https://api.spotify.com/v1/me/player/devices",
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -220,8 +231,8 @@ async def get_services_status():
 
                 if not spotify_device["found"]:
                     spotify_device["error"] = (
-                        f"Gerät '{get_spotify_service()._device_name}' nicht in Spotify-Geräteliste. "
-                        "Ist wundio-librespot aktiv?"
+                        f"Gerät '{svc._device_name}' nicht sichtbar. "
+                        "Öffne Spotify-App → Gerät auswählen → Wundio antippen."
                     )
         else:
             spotify_device["error"] = "Spotify Web API nicht konfiguriert"
@@ -230,6 +241,6 @@ async def get_services_status():
         spotify_device["error"] = str(exc)
 
     return {
-        "services":      services,
+        "services":       services,
         "spotify_device": spotify_device,
     }
