@@ -175,7 +175,8 @@ async def get_services_status():
     try:
         from config import get_settings
         from services.spotify import get_spotify_service
-        import base64, urllib.parse
+        import base64
+        import urllib.parse
 
         cfg = get_settings()
         client_id     = getattr(cfg, "spotify_client_id",     "")
