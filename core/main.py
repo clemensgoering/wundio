@@ -33,7 +33,7 @@ from services.spotify import get_spotify_service
 from services.ai.voice import get_voice_orchestrator
 from services.buttons import build_default_service
 from api.routes.system_actions import router as system_actions_router
-from api.routes.feedback_routes import router as feedback_router
+from api.routes.feedback import router as feedback_router
 from services.feedback import feedback
 
 from api.routes import (
