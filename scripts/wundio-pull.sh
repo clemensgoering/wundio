@@ -63,10 +63,16 @@ fi
 [[ $EUID -ne 0 ]] && error "Must run as root. Use: sudo wundio-pull"
 [[ ! -d "$REPO_DIR/.git" ]] && error "Not a git repository: ${REPO_DIR}"
 
+git -C "$REPO_DIR" config core.fileMode false
+
 mkdir -p "$(dirname "$LOG_FILE")"
 echo "=== wundio-pull $(date) ===" >> "$LOG_FILE"
 
 cd "$REPO_DIR"
+
+# Ensure fileMode is disabled – running as root causes permission bit
+# differences that make every file appear modified.
+git config core.fileMode false
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo ""

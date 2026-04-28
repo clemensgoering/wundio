@@ -350,6 +350,12 @@ fi
 chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$INSTALL_DIR"
 ok "Source ready at $INSTALL_DIR"
 
+# Prevent git from tracking file permission changes.
+# The install runs as root, which causes permission bits to differ from
+# the original clone, making every file appear modified.
+git -C "$INSTALL_DIR" config core.fileMode false
+ok "git fileMode disabled (prevents false positives)"
+
 # -- 6/10 Python venv
 section "6/10 Setting up Python environment"
 echo -e "  ${YELLOW}Pi 3: ca. 5-10 Minuten / Pi 4/5: ca. 2-4 Minuten${NC}"

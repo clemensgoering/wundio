@@ -132,6 +132,9 @@ export default function SystemPage() {
           Updates, Neustart und Wartung – direkt aus dem Browser.
         </p>
       </div>
+      
+      {/* Service & Spotify device status */}
+      <ServicesStatus />
 
       {/* Action groups */}
       <ActionGroup
@@ -286,9 +289,6 @@ function ActionRow({
           </button>
         </div>
       </div>
-      
-      {/* Service & Spotify device status */}
-      <ServicesStatus />
 
       {/* Confirm warning */}
       {runState === "confirm" && (

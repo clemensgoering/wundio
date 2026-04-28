@@ -38,3 +38,4 @@ Thumbs.db
 logger.txt
 
 core/static/
+web/package-lock.json
