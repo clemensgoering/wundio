@@ -17,7 +17,6 @@ Boot sequence:
 
 import logging
 import asyncio
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,7 +26,6 @@ from fastapi.responses import FileResponse
 
 from config import get_settings
 from database import get_engine, init_db, get_setting, set_setting, log_event
-from models.user import resolve_rfid_action
 from services.hardware import get_profile
 from services.display import get_display
 from services.rfid import get_rfid_service
@@ -36,7 +34,7 @@ from services.ai.voice import get_voice_orchestrator
 from services.buttons import build_default_service
 from api.routes.system_actions import router as system_actions_router
 from api.routes.feedback_routes import router as feedback_router
-from services.feedback import feedback, get_feedback_bus
+from services.feedback import feedback
 
 from api.routes import (
     system,
@@ -158,7 +156,7 @@ async def _on_rfid_scan(uid: str) -> None:
                 log_event("rfid", f"Playlist gestartet: {tag_label} ({uri})")
             else:
                 await feedback("error", "Spotify nicht verbunden", color="red", duration_ms=1500)
-                log_event("rfid", f"Spotify Web API nicht konfiguriert", level="WARN")
+                log_event("rfid", "Spotify Web API nicht konfiguriert", level="WARN")
  
     elif action["type"] == "action":
         act = action["action"]
