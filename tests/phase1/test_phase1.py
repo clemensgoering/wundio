@@ -2,6 +2,7 @@
 Phase 1 – Spotify, Buttons & Playback API Tests
 """
 import asyncio
+import inspect
 import json
 import pytest
 from unittest.mock import MagicMock, patch
@@ -102,232 +103,182 @@ class TestSpotifyService:
 # ── SpotifyService._play_uri_sync (unit) ──────────────────────────────────────
 
 class TestPlayUriSync:
-    """Unit tests for the synchronous play_uri internals.
-
-    Tests call _play_uri_sync directly to avoid asyncio overhead and to allow
-    fine-grained mocking of the individual HTTP helpers.
-    """
-
-    def test_returns_false_when_credentials_missing(self, monkeypatch):
-        """No credentials → False immediately, no network call."""
+    def _make_svc(self):
         from services.spotify import SpotifyService
-        from unittest.mock import MagicMock
-
-        mock_cfg = MagicMock()
-        mock_cfg.spotify_client_id     = ""
-        mock_cfg.spotify_client_secret = ""
-        mock_cfg.spotify_refresh_token = ""
-        monkeypatch.setattr("services.spotify.get_settings", lambda: mock_cfg)
-
-        svc = SpotifyService()
-        result = svc._play_uri_sync("spotify:playlist:abc")
-        assert result is False
-
-    def test_returns_false_on_token_failure(self, monkeypatch):
-        """Token refresh error → False, does not propagate exception."""
-        from services.spotify import SpotifyService
-        from unittest.mock import MagicMock
-
-        mock_cfg = MagicMock()
-        mock_cfg.spotify_client_id     = "id"
-        mock_cfg.spotify_client_secret = "secret"
-        mock_cfg.spotify_refresh_token = "token"
-        monkeypatch.setattr("services.spotify.get_settings", lambda: mock_cfg)
-
-        svc = SpotifyService()
-        svc._fetch_access_token = MagicMock(side_effect=Exception("Network error"))
-
-        result = svc._play_uri_sync("spotify:playlist:abc")
-        assert result is False
-
-    def test_returns_false_when_no_device_found(self, monkeypatch):
-        """No active Spotify device → False, informative log."""
-        from services.spotify import SpotifyService
-        from unittest.mock import MagicMock
-
-        mock_cfg = MagicMock()
-        mock_cfg.spotify_client_id     = "id"
-        mock_cfg.spotify_client_secret = "secret"
-        mock_cfg.spotify_refresh_token = "token"
-        monkeypatch.setattr("services.spotify.get_settings", lambda: mock_cfg)
-
-        svc = SpotifyService()
-        svc._fetch_access_token = MagicMock(return_value="access_tok")
-        svc._find_device_id     = MagicMock(return_value=None)
-
-        result = svc._play_uri_sync("spotify:playlist:abc")
-        assert result is False
-
-    def test_returns_true_on_success(self, monkeypatch):
-        """All helpers succeed → True."""
-        from services.spotify import SpotifyService
-        from unittest.mock import MagicMock
-
-        mock_cfg = MagicMock()
-        mock_cfg.spotify_client_id     = "id"
-        mock_cfg.spotify_client_secret = "secret"
-        mock_cfg.spotify_refresh_token = "token"
-        monkeypatch.setattr("services.spotify.get_settings", lambda: mock_cfg)
-
-        svc = SpotifyService()
-        svc._fetch_access_token  = MagicMock(return_value="access_tok")
-        svc._find_device_id      = MagicMock(return_value="device-123")
-        svc._send_play_request   = MagicMock()
-
-        result = svc._play_uri_sync("spotify:playlist:abc")
+        return SpotifyService()
+ 
+    def _mock_cfg(self, **kwargs):
+        cfg = MagicMock()
+        cfg.spotify_client_id     = kwargs.get("client_id",     "test_id")
+        cfg.spotify_client_secret = kwargs.get("client_secret", "test_secret")
+        cfg.spotify_refresh_token = kwargs.get("refresh_token", "test_refresh")
+        return cfg
+ 
+    def test_returns_false_when_credentials_missing(self):
+        svc = self._make_svc()
+        cfg = self._mock_cfg(client_id="", client_secret="", refresh_token="")
+        with patch("config.get_settings", return_value=cfg):
+            assert svc.play_uri("spotify:playlist:abc") is False
+ 
+    def test_returns_false_on_token_failure(self):
+        svc = self._make_svc()
+        cfg = self._mock_cfg()
+        with patch("config.get_settings", return_value=cfg):
+            with patch.object(svc, "_fetch_access_token", side_effect=Exception("auth failed")):
+                assert svc.play_uri("spotify:playlist:abc") is False
+ 
+    def test_returns_false_when_no_device_found(self):
+        svc = self._make_svc()
+        cfg = self._mock_cfg()
+        with patch("config.get_settings", return_value=cfg):
+            with patch.object(svc, "_fetch_access_token", return_value="tok"):
+                with patch.object(svc, "_find_device", return_value=(None, False)):
+                    with patch("time.sleep"):  # skip retry wait
+                        assert svc.play_uri("spotify:playlist:abc") is False
+ 
+    def test_returns_true_on_success(self):
+        svc = self._make_svc()
+        cfg = self._mock_cfg()
+        mock_resp = MagicMock()
+        mock_resp.status = 204
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+ 
+        with patch("config.get_settings", return_value=cfg):
+            with patch.object(svc, "_fetch_access_token", return_value="tok"):
+                with patch.object(svc, "_find_device", return_value=("dev123", True)):
+                    with patch("urllib.request.urlopen", return_value=mock_resp):
+                        result = svc.play_uri("spotify:playlist:abc")
+ 
         assert result is True
-        svc._send_play_request.assert_called_once_with(
-            "access_tok", "device-123", "spotify:playlist:abc"
-        )
-
-    def test_playlist_uri_uses_context_uri(self, monkeypatch):
-        """Playlists must use context_uri, not uris[]."""
-        from services.spotify import SpotifyService
-        from unittest.mock import MagicMock
-
-        mock_cfg = MagicMock()
-        mock_cfg.spotify_client_id     = "id"
-        mock_cfg.spotify_client_secret = "secret"
-        mock_cfg.spotify_refresh_token = "token"
-        monkeypatch.setattr("services.spotify.get_settings", lambda: mock_cfg)
-
+ 
+    def test_playlist_uri_uses_context_uri(self):
+        svc = self._make_svc()
+        cfg = self._mock_cfg()
         captured = {}
-
-        def capture_play(access_token, device_id, uri):
-            captured["uri"] = uri
-
-        svc = SpotifyService()
-        svc._fetch_access_token = MagicMock(return_value="tok")
-        svc._find_device_id     = MagicMock(return_value="dev")
-        svc._send_play_request  = capture_play
-
-        svc._play_uri_sync("spotify:playlist:37i9dQZF1DX0XUsuxWHRQd")
-        # _send_play_request receives the URI; body construction is inside it
-        assert captured["uri"] == "spotify:playlist:37i9dQZF1DX0XUsuxWHRQd"
-
-    def test_track_uri_uses_uris_list(self, monkeypatch):
-        """Tracks must use uris[], not context_uri."""
-        # The body-building logic lives in _send_play_request;
-        # we verify the URI is passed through correctly.
-        from services.spotify import SpotifyService
-        from unittest.mock import MagicMock
-
-        mock_cfg = MagicMock()
-        mock_cfg.spotify_client_id     = "id"
-        mock_cfg.spotify_client_secret = "secret"
-        mock_cfg.spotify_refresh_token = "token"
-        monkeypatch.setattr("services.spotify.get_settings", lambda: mock_cfg)
-
+ 
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = __import__("json").loads(req.data)
+            mock_resp = MagicMock()
+            mock_resp.status = 204
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+ 
+        with patch("config.get_settings", return_value=cfg):
+            with patch.object(svc, "_fetch_access_token", return_value="tok"):
+                with patch.object(svc, "_find_device", return_value=("dev123", True)):
+                    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                        svc.play_uri("spotify:playlist:abc123")
+ 
+        assert "context_uri" in captured.get("body", {})
+        assert "uris" not in captured.get("body", {})
+ 
+    def test_track_uri_uses_uris_list(self):
+        svc = self._make_svc()
+        cfg = self._mock_cfg()
         captured = {}
-
-        def capture_play(access_token, device_id, uri):
-            captured["uri"] = uri
-
-        svc = SpotifyService()
-        svc._fetch_access_token = MagicMock(return_value="tok")
-        svc._find_device_id     = MagicMock(return_value="dev")
-        svc._send_play_request  = capture_play
-
-        svc._play_uri_sync("spotify:track:4iV5W9uYEdYUVa79Axb7Rh")
-        assert captured["uri"] == "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
+ 
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = __import__("json").loads(req.data)
+            mock_resp = MagicMock()
+            mock_resp.status = 204
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+ 
+        with patch("config.get_settings", return_value=cfg):
+            with patch.object(svc, "_fetch_access_token", return_value="tok"):
+                with patch.object(svc, "_find_device", return_value=("dev123", True)):
+                    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                        svc.play_uri("spotify:track:xyz789")
+ 
+        assert "uris" in captured.get("body", {})
+        assert "context_uri" not in captured.get("body", {})
 
 
 # ── SpotifyService.play_uri (async) ───────────────────────────────────────────
 
 class TestPlayUriAsync:
-    """Verify that play_uri is a coroutine and does not block the event loop."""
-
     def test_play_uri_is_coroutine(self):
-        """play_uri must be awaitable (coroutine function)."""
-        import inspect
+        """play_uri_async must be awaitable; play_uri is the sync implementation."""
         from services.spotify import SpotifyService
         svc = SpotifyService()
-        assert inspect.iscoroutinefunction(svc.play_uri), (
-            "play_uri must be async so it can be awaited in _on_rfid_scan"
-        )
-
+        assert inspect.iscoroutinefunction(svc.play_uri_async), \
+            "play_uri_async must be async so it can be awaited in _on_rfid_scan"
+ 
     def test_play_uri_delegates_to_sync_impl(self):
-        """play_uri must call _play_uri_sync via asyncio.to_thread."""
         from services.spotify import SpotifyService
-
-        results = []
-
-        async def run():
-            svc = SpotifyService()
-            svc._play_uri_sync = lambda uri: results.append(uri) or True
-            await svc.play_uri("spotify:playlist:test")
-
-        asyncio.run(run())
-        assert results == ["spotify:playlist:test"]
-
+        svc = SpotifyService()
+        with patch.object(svc, "play_uri", return_value=True) as mock_sync:
+            result = asyncio.run(svc.play_uri_async("spotify:playlist:test"))
+        mock_sync.assert_called_once_with("spotify:playlist:test")
+        assert result is True
+ 
     def test_play_uri_returns_bool(self):
-        """play_uri must propagate the bool return from _play_uri_sync."""
         from services.spotify import SpotifyService
-
-        async def run():
-            svc = SpotifyService()
-            svc._play_uri_sync = lambda uri: False
-            return await svc.play_uri("spotify:playlist:test")
-
-        result = asyncio.run(run())
+        svc = SpotifyService()
+        with patch.object(svc, "play_uri", return_value=False):
+            result = asyncio.run(svc.play_uri_async("spotify:track:test"))
         assert result is False
 
 
 # ── SpotifyService._find_device_id ────────────────────────────────────────────
 
 class TestFindDeviceId:
+    def _make_svc(self, device_name: str = "Wundio"):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        svc._device_name = device_name   # set directly instead of constructor arg
+        return svc
+ 
     def test_prefers_device_matching_name(self):
-        """Device whose name contains self._device_name wins."""
-        from services.spotify import SpotifyService
-
-        devices_json = json.dumps({"devices": [
-            {"id": "other-id",  "name": "SomeOtherDevice"},
-            {"id": "wundio-id", "name": "Wundio"},
-        ]}).encode()
-
+        svc = self._make_svc("Wundio")
+        devices = [
+            {"id": "aaa", "name": "Some Speaker", "is_active": False},
+            {"id": "bbb", "name": "Wundio",        "is_active": True},
+        ]
         mock_resp = MagicMock()
-        mock_resp.read.return_value = devices_json
+        mock_resp.read.return_value = __import__("json").dumps({"devices": devices}).encode()
         mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__  = MagicMock(return_value=False)
-
+        mock_resp.__exit__ = MagicMock(return_value=False)
+ 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            svc = SpotifyService(device_name="Wundio")
-            device_id = svc._find_device_id("tok")
-
-        assert device_id == "wundio-id"
-
+            device_id, is_active = svc._find_device("fake_token")
+ 
+        assert device_id == "bbb"
+        assert is_active is True
+ 
     def test_falls_back_to_first_device(self):
-        """Falls back to first device when name does not match."""
-        from services.spotify import SpotifyService
-
-        devices_json = json.dumps({"devices": [
-            {"id": "first-id",  "name": "Laptop"},
-            {"id": "second-id", "name": "Phone"},
-        ]}).encode()
-
+        svc = self._make_svc("Wundio")
+        devices = [
+            {"id": "zzz", "name": "Other Device", "is_active": True},
+        ]
         mock_resp = MagicMock()
-        mock_resp.read.return_value = devices_json
+        mock_resp.read.return_value = __import__("json").dumps({"devices": devices}).encode()
         mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__  = MagicMock(return_value=False)
-
+        mock_resp.__exit__ = MagicMock(return_value=False)
+ 
+        # "Wundio" not in list → should return (None, False) with new strict logic
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            svc = SpotifyService(device_name="Wundio")
-            device_id = svc._find_device_id("tok")
-
-        assert device_id == "first-id"
-
+            device_id, is_active = svc._find_device("fake_token")
+ 
+        # New behaviour: no fallback to other devices, returns None
+        assert device_id is None
+        assert is_active is False
+ 
     def test_returns_none_when_no_devices(self):
-        """Returns None when Spotify reports no active devices."""
-        from services.spotify import SpotifyService
-
+        svc = self._make_svc("Wundio")
         mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({"devices": []}).encode()
+        mock_resp.read.return_value = __import__("json").dumps({"devices": []}).encode()
         mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__  = MagicMock(return_value=False)
-
+        mock_resp.__exit__ = MagicMock(return_value=False)
+ 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            svc = SpotifyService()
-            assert svc._find_device_id("tok") is None
+            device_id, is_active = svc._find_device("fake_token")
+ 
+        assert device_id is None
+        assert is_active is False
 
 
 # ── ButtonService ─────────────────────────────────────────────────────────────
