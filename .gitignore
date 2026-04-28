@@ -36,3 +36,5 @@ Thumbs.db
 /var/
 *.db
 logger.txt
+
+core/static/

@@ -47,13 +47,13 @@ def _resolve_script(name: str) -> str | None:
 ACTIONS: dict[str, tuple[str, list[str], bool, int]] = {
     "pull-quick": (
         "Code-Update (schnell)",
-        ["wundio-pull"],
+         ["wundio-pull", "--force"],          # --force: kein interaktiver Prompt
         False,
         30,
     ),
     "pull-full": (
         "Vollständiges Update (Code + Frontend)",
-        ["wundio-pull", "--full"],
+         ["wundio-pull", "--force", "--full"],  # --force: kein interaktiver Prompt
         False,
         900,
     ),
