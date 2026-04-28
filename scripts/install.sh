@@ -354,6 +354,7 @@ ok "Source ready at $INSTALL_DIR"
 # The install runs as root, which causes permission bits to differ from
 # the original clone, making every file appear modified.
 git -C "$INSTALL_DIR" config core.fileMode false
+chmod +x "$INSTALL_DIR"/scripts/*.sh
 ok "git fileMode disabled (prevents false positives)"
 
 # -- 6/10 Python venv

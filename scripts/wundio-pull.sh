@@ -63,8 +63,6 @@ fi
 [[ $EUID -ne 0 ]] && error "Must run as root. Use: sudo wundio-pull"
 [[ ! -d "$REPO_DIR/.git" ]] && error "Not a git repository: ${REPO_DIR}"
 
-git -C "$REPO_DIR" config core.fileMode false
-
 mkdir -p "$(dirname "$LOG_FILE")"
 echo "=== wundio-pull $(date) ===" >> "$LOG_FILE"
 
@@ -163,6 +161,11 @@ else
     ok "Bereits aktuell (${NEW_COMMIT})"
 fi
 
+
+# ── Restore script permissions ────────────────────────────────────────────────
+# git with core.fileMode=false does not restore executable bits after pull.
+chmod +x "$REPO_DIR"/scripts/*.sh
+ok "Script-Berechtigungen wiederhergestellt"
 # ── Rebuild Frontend (optional) ───────────────────────────────────────────────
 if [[ "$REBUILD_FRONTEND" == true ]]; then
     info "Baue Frontend neu..."
