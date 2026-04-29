@@ -4,9 +4,9 @@ import { Button, Input } from "@/components/ui";
 const RELAY_REDIRECT_URI = "https://wundio.dev/spotify-callback";
 
 interface InteractiveSetupProps {
-  hasClientId:        boolean;
-  hasSecret:          boolean;
-  hasRefreshToken:    boolean;
+  hasClientId: boolean;
+  hasSecret: boolean;
+  hasRefreshToken: boolean;
   onCredentialsSaved?: () => void;
 }
 
@@ -38,7 +38,7 @@ export default function InteractiveSpotifySetup({
     fetch("/api/system/status")
       .then((r) => r.json())
       .then((d) => { if (d.local_ip && !d.local_ip.includes("XXX")) setLocalIp(d.local_ip); })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const validateIp = (ip: string): boolean => {
@@ -195,11 +195,16 @@ export default function InteractiveSpotifySetup({
 
       <Step num={4} active={currentStep >= 4} done={hasRefreshToken} title="Mit Spotify autorisieren">
         {currentStep >= 4 ? (
-          hasRefreshToken ? (
+          hasRefreshToken ? (<>
             <div className="bg-teal/10 border border-teal/30 rounded-lg p-3 mt-2">
               <p className="text-xs text-teal font-semibold">✓ Spotify verbunden!</p>
               <p className="text-[10px] text-muted mt-1">RFID-Tags können jetzt Playlists starten.</p>
             </div>
+            <p className="text-[10px] text-muted mt-2">
+              Öffne einmalig die Spotify-App und wähle "Wundio" als Wiedergabegerät.
+              Danach startet Wundio bei jedem RFID-Chip automatisch die Wiedergabe dort.
+            </p>
+          </>
           ) : (
             <div className="space-y-2 mt-2">
               <p className="text-xs text-muted">

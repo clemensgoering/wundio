@@ -96,7 +96,9 @@ export default function ServicesStatus() {
               </p>
               {data && !data.spotify_device.found && !data.spotify_device.error.includes("nicht konfiguriert") && (
                 <p className="text-[10px] text-amber/80 mt-1">
-                  Wird automatisch registriert – falls nicht sichtbar: Service neu starten.
+                  Einmalig nötig: Öffne die Spotify-App → "Gerät auswählen" → wähle{" "}
+                  <strong className="text-paper">Wundio</strong>.
+                  Danach startet Wundio die Wiedergabe automatisch bei jedem RFID-Scan.
                 </p>
               )}
             </div>
