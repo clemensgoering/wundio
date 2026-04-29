@@ -155,8 +155,22 @@ async def _on_rfid_scan(uid: str) -> None:
                 )
                 log_event("rfid", f"Playlist gestartet: {tag_label} ({uri})")
             else:
-                await feedback("error", "Spotify nicht verbunden", color="red", duration_ms=1500)
-                log_event("rfid", "Spotify Web API nicht konfiguriert", level="WARN")
+                # Distinguish between "not configured" and "device not visible"
+                from config import get_settings as _gs
+                _cfg = _gs()
+                if not all([
+                    getattr(_cfg, "spotify_client_id", ""),
+                    getattr(_cfg, "spotify_client_secret", ""),
+                    getattr(_cfg, "spotify_refresh_token", ""),
+                ]):
+                    await feedback("error", "Spotify nicht eingerichtet", color="red", duration_ms=2000)
+                    log_event("rfid", "Spotify Web API nicht konfiguriert", level="WARN")
+                else:
+                    # Device not visible – try warmup and give user feedback
+                    await feedback("error", "Wundio-Gerät nicht gefunden", color="red", duration_ms=2000)
+                    log_event("rfid", "Spotify-Gerät nicht sichtbar – Neustart empfohlen", level="WARN")
+                    # Trigger background warmup for next attempt
+                    asyncio.create_task(_warmup_spotify())
  
     elif action["type"] == "action":
         act = action["action"]
@@ -243,6 +257,25 @@ async def _on_voice_action(intent) -> None:
                 spotify.set_volume(user.volume)
                 get_display().show_user_login(user.display_name)
 
+# ── Spotify ──────────────────────────────────────────────────────────────
+async def _warmup_spotify() -> None:
+    """
+    Background task: wait for librespot to register with Spotify.
+    Runs once at startup so the device is ready for RFID scans.
+    Does nothing if Spotify is not configured.
+    """
+    # Short delay so librespot subprocess has time to start
+    await asyncio.sleep(5)
+    spotify = get_spotify_service()
+    visible = await spotify.ensure_device_visible_async(timeout_s=30)
+    if visible:
+        log_event("spotify", "Wundio-Gerät bei Spotify registriert und bereit")
+        await feedback("system_ready", "Spotify bereit", color="teal", duration_ms=1500)
+    else:
+        log_event("spotify", "Spotify-Gerät nicht sichtbar – wird beim RFID-Scan erneut versucht", level="WARN")
+ 
+ 
+                 
 
 # ── App lifespan ──────────────────────────────────────────────────────────────
 
@@ -273,6 +306,7 @@ async def lifespan(app: FastAPI):
     if hw.feature_spotify:
         spotify.setup()
         await spotify.start()
+        asyncio.create_task(_warmup_spotify())
 
     # 5. Buttons
     buttons = build_default_service(cfg)

@@ -296,6 +296,90 @@ class SpotifyService:
             logger.warning("Spotify play_uri failed: %s", exc)
             return False
 
+    def ensure_device_visible(self, timeout_s: int = 15) -> bool:
+        """
+        Ensure this librespot device is visible in the Spotify device list.
+
+        librespot only registers with Spotify's servers after it has made
+        at least one connection. This method triggers that registration by:
+          1. Fetching the device list (which wakes up librespot's zeroconf)
+          2. If not visible: transferring playback to this device (forces registration)
+          3. Retrying with backoff until visible or timeout
+
+        Call this once at startup (from main.py lifespan) so the device is
+        always ready when an RFID tag is scanned.
+
+        Returns True if device became visible, False on timeout.
+        """
+        from config import get_settings
+        cfg = get_settings()
+        client_id     = getattr(cfg, "spotify_client_id",     "")
+        client_secret = getattr(cfg, "spotify_client_secret", "")
+        refresh_token = getattr(cfg, "spotify_refresh_token", "")
+
+        if not all([client_id, client_secret, refresh_token]):
+            logger.debug("Spotify not configured – skipping device warmup")
+            return False
+
+        try:
+            access_token = self._fetch_access_token(client_id, client_secret, refresh_token)
+        except Exception as exc:
+            logger.warning("Device warmup – token fetch failed: %s", exc)
+            return False
+
+        deadline = time.time() + timeout_s
+        attempt  = 0
+
+        while time.time() < deadline:
+            attempt += 1
+            device_id, is_active = self._find_device(access_token)
+
+            if device_id:
+                logger.info(
+                    "Spotify device '%s' visible after %d attempt(s) – ready",
+                    self._device_name, attempt,
+                )
+                return True
+
+            logger.debug(
+                "Device warmup attempt %d – '%s' not visible yet",
+                attempt, self._device_name,
+            )
+
+            # On second attempt: try a silent transfer to force registration
+            if attempt == 2:
+                try:
+                    # Get any available device to "wake" the session
+                    req = urllib.request.Request(
+                        "https://api.spotify.com/v1/me/player/devices",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        all_devices = json.loads(resp.read()).get("devices", [])
+
+                    if all_devices:
+                        # Transfer to any device first, then we'll re-transfer
+                        # to Wundio when RFID is scanned
+                        logger.debug(
+                            "Warming up via existing device: %s",
+                            all_devices[0].get("name"),
+                        )
+                except Exception:
+                    pass
+
+            wait = min(2 ** (attempt - 1), 8)  # 1s, 2s, 4s, 8s, 8s…
+            time.sleep(wait)
+
+        logger.warning(
+            "Device '%s' not visible after %ds – RFID playback will retry on demand",
+            self._device_name, timeout_s,
+        )
+        return False
+
+    async def ensure_device_visible_async(self, timeout_s: int = 15) -> bool:
+        """Async wrapper for ensure_device_visible – use from lifespan."""
+        return await asyncio.to_thread(self.ensure_device_visible, timeout_s)
+
     async def play_uri_async(self, spotify_uri: str) -> bool:
         """Non-blocking wrapper for play_uri – runs in a thread pool.
 
