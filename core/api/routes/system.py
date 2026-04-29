@@ -232,7 +232,7 @@ async def get_services_status():
                 if not spotify_device["found"]:
                     spotify_device["error"] = (
                         f"Gerät '{svc._device_name}' nicht sichtbar. "
-                        "Öffne Spotify-App → Gerät auswählen → Wundio antippen."
+                        "Wundio startet im Hintergrund – bitte kurz warten oder Service neu starten."
                     )
         else:
             spotify_device["error"] = "Spotify Web API nicht konfiguriert"

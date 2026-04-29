@@ -96,8 +96,7 @@ export default function ServicesStatus() {
               </p>
               {data && !data.spotify_device.found && !data.spotify_device.error.includes("nicht konfiguriert") && (
                 <p className="text-[10px] text-amber/80 mt-1">
-                  Öffne einmalig die Spotify-App → "Gerät auswählen" → wähle{" "}
-                  <strong className="text-paper">Wundio</strong> um librespot zu registrieren.
+                  Wird automatisch registriert – falls nicht sichtbar: Service neu starten.
                 </p>
               )}
             </div>
