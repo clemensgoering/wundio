@@ -92,8 +92,9 @@ class SpotifyService:
 
     async def start(self) -> None:
         """
-        Spawn librespot immediately (non-blocking).
-        Token auth happens in background – systemctl restart returns instantly.
+        Spawn librespot subprocess in Zeroconf mode.
+        The device registers on the local network automatically.
+        When an RFID tag is scanned, play_uri() transfers playback here via the Web API.
         """
         if not self._available:
             logger.info("Spotify service in mock mode (no librespot)")
@@ -120,67 +121,6 @@ class SpotifyService:
             stderr=asyncio.subprocess.PIPE,
         )
         asyncio.create_task(self._monitor())
-        # Auth in background – no blocking, no restart delay
-        asyncio.create_task(self._authenticate_in_background())
-
-    async def _authenticate_in_background(self) -> None:
-        """
-        Fetch access token after librespot has initialized, then restart
-        it with --access-token so the device is immediately visible in Spotify.
-        Skipped silently when credentials are not configured.
-        """
-        await asyncio.sleep(5)  # let librespot initialize
-
-        token = await asyncio.to_thread(self._get_startup_token)
-        if not token:
-            logger.info("No Spotify credentials – librespot in zeroconf mode")
-            return
-
-        logger.info("Restarting librespot with access token for immediate device visibility")
-        self.stop()
-        await asyncio.sleep(1)
-
-        bin_path   = LIBRESPOT_BIN if Path(LIBRESPOT_BIN).exists() else "librespot"
-        event_hook = "/opt/wundio/scripts/librespot-event.sh"
-
-        cmd = [
-            bin_path,
-            "--name",           self._device_name,
-            "--bitrate",        str(self._bitrate),
-            "--backend",        "alsa",
-            "--disable-audio-cache",
-            "--initial-volume", str(self._state.volume),
-            "--access-token",   token,
-        ]
-        if Path(event_hook).exists():
-            cmd += ["--onevent", event_hook]
-
-        # Redact token from logs
-        safe_cmd = " ".join(a if not a.startswith("AQ") else "***" for a in cmd)
-        logger.info("Starting librespot with token: %s", safe_cmd)
-
-        self._process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        asyncio.create_task(self._monitor())
-
-    def _get_startup_token(self) -> str:
-        """Blocking: fetch access token. Returns '' on any failure."""
-        from config import get_settings
-        cfg = get_settings()
-        client_id     = getattr(cfg, "spotify_client_id",     "")
-        client_secret = getattr(cfg, "spotify_client_secret", "")
-        refresh_token = getattr(cfg, "spotify_refresh_token", "")
-
-        if not all([client_id, client_secret, refresh_token]):
-            return ""
-        try:
-            return self._fetch_access_token(client_id, client_secret, refresh_token)
-        except Exception as exc:
-            logger.warning("Startup token fetch failed: %s", exc)
-            return ""
 
     async def _monitor(self) -> None:
         """Log librespot stderr and restart on unexpected exit."""
