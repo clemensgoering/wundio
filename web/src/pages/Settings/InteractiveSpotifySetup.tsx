@@ -32,7 +32,7 @@ export default function InteractiveSpotifySetup({
   useEffect(() => setHasSecret(initialHasSecret), [initialHasSecret]);
   useEffect(() => {
     if (initialHasClientId && initialHasSecret && currentStep < 4) setCurrentStep(4);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialHasClientId, initialHasSecret]); // läuft wenn SWR die Daten liefert
 
   useEffect(() => {
     fetch("/api/system/status")
