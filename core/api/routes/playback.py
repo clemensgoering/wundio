@@ -1,12 +1,15 @@
 """
-Wundio – /api/playback routes (Phase 1)
+Wundio – /api/playback routes
 Controls librespot / reports current state.
 """
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.spotify import get_spotify_service
 from services.buttons import get_button_service
+from services.feedback import feedback
 from database import log_event, set_setting
 
 router = APIRouter(tags=["playback"])
@@ -27,6 +30,44 @@ async def get_state():
     return svc.refresh_state().to_dict()
 
 
+@router.post("/toggle")
+async def toggle_play_pause():
+    """Toggle play/pause on the active Spotify device."""
+    svc = get_spotify_service()
+    svc.refresh_state()
+    is_playing = svc.get_state().playing
+    ok = await asyncio.to_thread(svc.toggle_play_pause)
+    if ok:
+        new_state = "Pause" if is_playing else "Abspielen"
+        color     = "white"  if is_playing else "teal"
+        event     = "playback_pause" if is_playing else "playback_start"
+        await feedback(event, new_state, color=color, duration_ms=800)
+        log_event("playback", f"Toggle: {new_state}")
+    return {"ok": ok, "playing": not is_playing}
+
+
+@router.post("/next")
+async def next_track():
+    """Skip to the next track."""
+    svc = get_spotify_service()
+    ok = await asyncio.to_thread(svc.next_track)
+    if ok:
+        await feedback("track_next", "Nächster Titel", color="teal", duration_ms=600)
+        log_event("playback", "Nächster Titel")
+    return {"ok": ok}
+
+
+@router.post("/prev")
+async def prev_track():
+    """Skip to the previous track."""
+    svc = get_spotify_service()
+    ok = await asyncio.to_thread(svc.prev_track)
+    if ok:
+        await feedback("track_prev", "Vorheriger Titel", color="teal", duration_ms=600)
+        log_event("playback", "Vorheriger Titel")
+    return {"ok": ok}
+
+
 @router.post("/volume")
 async def set_volume(req: VolumeRequest):
     if not 0 <= req.volume <= 100:
@@ -34,6 +75,7 @@ async def set_volume(req: VolumeRequest):
     svc = get_spotify_service()
     svc.set_volume(req.volume)
     set_setting("current_volume", str(req.volume))
+    await feedback("volume_change", f"Lautstärke {req.volume}%", color="blue", duration_ms=600)
     log_event("playback", f"Volume set to {req.volume}")
     return {"volume": req.volume}
 
