@@ -162,11 +162,14 @@ else
 fi
 
 
-# ── Restore script permissions ────────────────────────────────────────────────
-# git with core.fileMode=false does not restore executable bits after pull.
+# ── Restore script permissions & normalize git index ────────────────────────
+# Restore permissions and suppress false M entries for all scripts
 chmod +x "$REPO_DIR"/scripts/*.sh
+chmod +x "$REPO_DIR"/diagnose/*.sh 2>/dev/null || true
+git ls-files scripts/ diagnose/ \
+    | xargs -r git update-index --assume-unchanged
 ok "Script-Berechtigungen wiederhergestellt"
-# ── Rebuild Frontend (optional) ───────────────────────────────────────────────
+
 if [[ "$REBUILD_FRONTEND" == true ]]; then
     info "Baue Frontend neu..."
 

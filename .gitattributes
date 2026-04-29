@@ -1,7 +1,11 @@
 # Wundio - Git Attributes
 
-# Force LF line endings for shell scripts (avoid CRLF issues)
-*.sh text eol=lf
+# Force LF line endings everywhere
+* text=auto eol=lf
+
+# Shell scripts – force executable bit in index
+scripts/*.sh text eol=lf diff
+diagnose/*.sh text eol=lf diff
 
 # Python files
 *.py text eol=lf
@@ -17,5 +21,6 @@
 # Markdown
 *.md text eol=lf
 
-# Keep executable bit in repo for scripts
-scripts/*.sh -diff
+# Build output – never track
+core/static/ export-ignore
+web/package-lock.json export-ignore

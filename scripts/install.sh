@@ -350,12 +350,30 @@ fi
 chown -R "$WUNDIO_USER":"$WUNDIO_USER" "$INSTALL_DIR"
 ok "Source ready at $INSTALL_DIR"
 
-# Prevent git from tracking file permission changes.
-# The install runs as root, which causes permission bits to differ from
-# the original clone, making every file appear modified.
+# Normalize git index – prevents false "M" (modified) reports after root install.
+# core.fileMode=false alone is insufficient: the index already contains stale
+# permission bits from the clone. We must reset the entire index.
 git -C "$INSTALL_DIR" config core.fileMode false
+ 
+# Reset all tracked files to match the committed content exactly
+git -C "$INSTALL_DIR" checkout-index -f -a
+ 
+# Explicitly set executable bit for scripts in the index and on disk
+git -C "$INSTALL_DIR" update-index --chmod=+x scripts/*.sh diagnose/*.sh 2>/dev/null || true
 chmod +x "$INSTALL_DIR"/scripts/*.sh
-ok "git fileMode disabled (prevents false positives)"
+chmod +x "$INSTALL_DIR"/diagnose/*.sh 2>/dev/null || true
+
+git -C "$INSTALL_DIR" ls-files scripts/ diagnose/ \
+    | xargs -r git -C "$INSTALL_DIR" update-index --assume-unchanged
+ 
+ok "Git index normalized – scripts executable, no false M entries"
+
+# Symlinks for management commands (use /usr/bin – always in sudo PATH)
+ln -sf "$INSTALL_DIR/scripts/wundio-pull.sh"  /usr/bin/wundio-pull
+ln -sf "$INSTALL_DIR/scripts/update.sh"        /usr/bin/wundio-update
+ln -sf "$INSTALL_DIR/scripts/uninstall.sh"     /usr/bin/wundio-uninstall
+ 
+ok "Git index normalized, symlinks created"
 
 # -- 6/10 Python venv
 section "6/10 Setting up Python environment"
