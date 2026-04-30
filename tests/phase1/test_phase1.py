@@ -370,3 +370,160 @@ class TestPlaybackApi:
     def test_simulate_invalid_button(self, api_client):
         r = api_client.post("/api/playback/button/explode")
         assert r.status_code == 422
+
+
+
+class TestPlaybackApiExtended:
+    """Tests for toggle, next, prev endpoints added in Phase 1 completion."""
+
+    def test_toggle_endpoint_exists(self, api_client):
+        """POST /api/playback/toggle must return 200, not 405."""
+        with patch("services.spotify.SpotifyService.toggle_play_pause", return_value=True):
+            r = api_client.post("/api/playback/toggle")
+        assert r.status_code == 200
+
+    def test_toggle_returns_ok_and_playing_state(self, api_client):
+        with patch("services.spotify.SpotifyService.toggle_play_pause", return_value=True):
+            r = api_client.post("/api/playback/toggle")
+        assert r.status_code == 200
+        d = r.json()
+        assert "ok" in d
+        assert "playing" in d
+        assert isinstance(d["playing"], bool)
+
+    def test_toggle_ok_false_when_spotify_fails(self, api_client):
+        with patch("services.spotify.SpotifyService.toggle_play_pause", return_value=False):
+            r = api_client.post("/api/playback/toggle")
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+    def test_next_endpoint_exists(self, api_client):
+        """POST /api/playback/next must return 200, not 405."""
+        with patch("services.spotify.SpotifyService.next_track", return_value=True):
+            r = api_client.post("/api/playback/next")
+        assert r.status_code == 200
+
+    def test_next_returns_ok(self, api_client):
+        with patch("services.spotify.SpotifyService.next_track", return_value=True):
+            r = api_client.post("/api/playback/next")
+        assert r.json()["ok"] is True
+
+    def test_prev_endpoint_exists(self, api_client):
+        """POST /api/playback/prev must return 200, not 405."""
+        with patch("services.spotify.SpotifyService.prev_track", return_value=True):
+            r = api_client.post("/api/playback/prev")
+        assert r.status_code == 200
+
+    def test_prev_returns_ok(self, api_client):
+        with patch("services.spotify.SpotifyService.prev_track", return_value=True):
+            r = api_client.post("/api/playback/prev")
+        assert r.json()["ok"] is True
+
+    def test_next_ok_false_when_spotify_fails(self, api_client):
+        with patch("services.spotify.SpotifyService.next_track", return_value=False):
+            r = api_client.post("/api/playback/next")
+        assert r.json()["ok"] is False
+
+    def test_prev_ok_false_when_spotify_fails(self, api_client):
+        with patch("services.spotify.SpotifyService.prev_track", return_value=False):
+            r = api_client.post("/api/playback/prev")
+        assert r.json()["ok"] is False
+
+
+# ── Ergänzung für TestPlayUriAsync ────────────────────────────────────────────
+
+class TestPlayUriAsyncExtended:
+    """Additional async wrapper tests."""
+
+    def test_play_uri_async_exists(self):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "play_uri_async")
+        assert asyncio.iscoroutinefunction(svc.play_uri_async)
+
+    def test_play_uri_sync_exists_and_is_not_async(self):
+        """play_uri must be sync so it can run in asyncio.to_thread."""
+        import inspect
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "play_uri")
+        assert not inspect.iscoroutinefunction(svc.play_uri)
+
+    def test_toggle_play_pause_exists(self):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "toggle_play_pause")
+
+    def test_next_track_exists(self):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "next_track")
+
+    def test_prev_track_exists(self):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "prev_track")
+
+    def test_pause_exists(self):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "pause")
+
+    def test_resume_exists(self):
+        from services.spotify import SpotifyService
+        svc = SpotifyService()
+        assert hasattr(svc, "resume")
+
+
+# ── Feedback Bus Tests ────────────────────────────────────────────────────────
+
+class TestFeedbackBus:
+    """Tests for the device feedback event system."""
+
+    def test_feedback_bus_singleton(self):
+        from services.feedback import get_feedback_bus
+        b1 = get_feedback_bus()
+        b2 = get_feedback_bus()
+        assert b1 is b2
+
+    def test_feedback_event_fields(self):
+        from services.feedback import FeedbackEvent
+        e = FeedbackEvent(type="rfid_scan", label="Test", color="amber", duration_ms=1000)
+        assert e.type == "rfid_scan"
+        assert e.label == "Test"
+        assert e.color == "amber"
+        assert e.duration_ms == 1000
+
+    def test_publish_delivers_to_queue(self):
+        from services.feedback import FeedbackBus, FeedbackEvent
+        bus = FeedbackBus()
+        q = asyncio.Queue()
+        bus._sse_queues.append(q)
+
+        event = FeedbackEvent(type="test", label="hello", color="teal", duration_ms=500)
+        asyncio.run(bus.publish(event))
+
+        assert not q.empty()
+        payload = q.get_nowait()
+        import json
+        data = json.loads(payload)
+        assert data["type"] == "test"
+        assert data["label"] == "hello"
+
+    def test_hardware_listener_called(self):
+        from services.feedback import FeedbackBus, FeedbackEvent
+        bus = FeedbackBus()
+        received = []
+        bus.add_hardware_listener(lambda e: received.append(e))
+
+        event = FeedbackEvent(type="rfid_scan", label="Tag", color="amber", duration_ms=800)
+        asyncio.run(bus.publish(event))
+
+        assert len(received) == 1
+        assert received[0].type == "rfid_scan"
+
+    def test_feedback_stream_endpoint(self, api_client):
+        """SSE endpoint must return 200 with correct content-type."""
+        with api_client.stream("GET", "/api/feedback/stream") as r:
+            assert r.status_code == 200
+            assert "text/event-stream" in r.headers["content-type"]
