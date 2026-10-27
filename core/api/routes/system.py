@@ -134,13 +134,9 @@ async def restart_service():
 @router.get("/services")
 async def get_services_status():
     """
-    Returns runtime status of system services and Spotify device visibility.
+    Returns runtime status of system services and the box's Spotify login.
     """
     import subprocess
-    import json as _json
-    import urllib.request
-    import base64
-    import urllib.parse
 
     def _systemctl_status(service: str) -> dict:
         try:
@@ -163,82 +159,30 @@ async def get_services_status():
         except Exception:
             return {"active": False, "since": ""}
 
-    def _librespot_process_status() -> dict:
-        """
-        librespot runs as a child process of wundio-core, not a systemd unit.
-        Detect via pgrep instead of systemctl.
-        """
-        try:
-            r = subprocess.run(
-                ["pgrep", "-x", "librespot"],
-                capture_output=True, timeout=3,
-            )
-            return {"active": r.returncode == 0, "since": "", "mode": "process"}
-        except Exception:
-            return {"active": False, "since": "", "mode": "process"}
+    from services.spotify import get_spotify_service
+    spotify = get_spotify_service()
+    info = spotify.status_info()
 
     services = {
-        "wundio-core":      _systemctl_status("wundio-core"),
-        "wundio-librespot": _librespot_process_status(),
+        "wundio-core":    _systemctl_status("wundio-core"),
+        # go-librespot runs as a child process of wundio-core, not a systemd unit
+        "wundio-spotify": {"active": info["running"], "since": "", "mode": "process"},
     }
 
-    # Spotify device visibility
-    spotify_device: dict = {"found": False, "name": "", "is_active": False, "error": ""}
-    try:
-        from config import get_settings
-        from services.spotify import get_spotify_service
-
-        cfg = get_settings()
-        client_id     = getattr(cfg, "spotify_client_id",     "")
-        client_secret = getattr(cfg, "spotify_client_secret", "")
-        refresh_token = getattr(cfg, "spotify_refresh_token", "")
-
-        if all([client_id, client_secret, refresh_token]):
-            creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-            token_req = urllib.request.Request(
-                "https://accounts.spotify.com/api/token",
-                data=urllib.parse.urlencode({
-                    "grant_type":    "refresh_token",
-                    "refresh_token": refresh_token,
-                }).encode(),
-                headers={
-                    "Authorization": f"Basic {creds}",
-                    "Content-Type":  "application/x-www-form-urlencoded",
-                },
-            )
-            with urllib.request.urlopen(token_req, timeout=5) as resp:
-                access_token = _json.loads(resp.read()).get("access_token", "")
-
-            if access_token:
-                svc = get_spotify_service()
-                device_name = svc._device_name.lower()
-                devices_req = urllib.request.Request(
-                    "https://api.spotify.com/v1/me/player/devices",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                with urllib.request.urlopen(devices_req, timeout=5) as resp:
-                    all_devices = _json.loads(resp.read()).get("devices", [])
-
-                for d in all_devices:
-                    if device_name in d.get("name", "").lower():
-                        spotify_device = {
-                            "found":     True,
-                            "name":      d["name"],
-                            "is_active": d.get("is_active", False),
-                            "error":     "",
-                        }
-                        break
-
-                if not spotify_device["found"]:
-                    spotify_device["error"] = (
-                        f"Gerät '{svc._device_name}' nicht sichtbar. "
-                        "Einmalig: Spotify-App öffnen → Gerät auswählen → Wundio antippen. Danach automatisch."
-                    )
-        else:
-            spotify_device["error"] = "Spotify Web API nicht konfiguriert"
-
-    except Exception as exc:
-        spotify_device["error"] = str(exc)
+    spotify_device: dict = {
+        "found":     info["logged_in"],
+        "name":      info["device_name"],
+        "is_active": info["logged_in"] and spotify.refresh_state().playing,
+        "error":     "",
+    }
+    if not info["installed"]:
+        spotify_device["error"] = "go-librespot ist nicht installiert"
+    elif not info["running"]:
+        spotify_device["error"] = "Spotify-Player läuft nicht"
+    elif not info["logged_in"]:
+        spotify_device["error"] = (
+            "Box ist noch nicht bei Spotify angemeldet – Einstellungen → Spotify-Konto der Box"
+        )
 
     return {
         "services":       services,

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from database import get_engine, log_event, RfidTag
+from services import card_learning
 
 router = APIRouter(tags=["rfid"])
 
@@ -26,8 +27,20 @@ async def list_tags():
         return session.exec(select(RfidTag)).all()
 
 
+class LearnRequest(BaseModel):
+    seconds: int = card_learning.DEFAULT_LEARN_S
+
+
 @router.post("/assign", response_model=RfidTag)
 async def assign_tag(data: TagAssign):
+    if data.tag_type == "playlist":
+        uri = card_learning.normalize_spotify_uri(data.spotify_uri or "")
+        if not uri:
+            raise HTTPException(
+                status_code=422,
+                detail="Ungültiger Spotify-Link – erwartet open.spotify.com/... oder spotify:album:...",
+            )
+        data.spotify_uri = uri
     with Session(get_engine()) as session:
         existing = session.exec(
             select(RfidTag).where(RfidTag.uid == data.uid)
@@ -47,19 +60,6 @@ async def assign_tag(data: TagAssign):
         session.refresh(tag)
         log_event("rfid", f"Tag assigned: {data.uid} → {data.tag_type}")
         return tag
-
-
-@router.delete("/{tag_uid}")
-async def delete_tag(tag_uid: str):
-    with Session(get_engine()) as session:
-        tag = session.exec(
-            select(RfidTag).where(RfidTag.uid == tag_uid)
-        ).first()
-        if not tag:
-            raise HTTPException(status_code=404, detail="Tag not found")
-        session.delete(tag)
-        session.commit()
-        return {"ok": True}
 
 
 @router.post("/mock-scan/{uid}")
@@ -90,3 +90,52 @@ async def last_scan():
     if age > 30:
         uid = ""
     return {"uid": uid, "age_seconds": age}
+
+
+# ── Card learning ("play it, then hold the card to the box") ─────────────────
+
+def _learn_status() -> dict:
+    from services.spotify import get_spotify_service
+    state = get_spotify_service().refresh_state()
+    target = card_learning.learnable_from_state(state) if state.playing else None
+    return {
+        "armed":        card_learning.is_armed(),
+        "seconds_left": card_learning.seconds_left(),
+        "auto_learn":   card_learning.auto_learn_enabled(),
+        "now_playing":  target,
+    }
+
+
+@router.get("/learn")
+async def learn_status():
+    """Learn mode state + what a card would be bound to right now."""
+    import asyncio
+    return await asyncio.to_thread(_learn_status)
+
+
+@router.post("/learn")
+async def learn_start(req: LearnRequest):
+    """Bind the next scanned card (new or existing) to the current playback."""
+    card_learning.arm(req.seconds)
+    log_event("rfid", "Anlern-Modus aktiv – nächste Karte übernimmt die aktuelle Wiedergabe")
+    return {"armed": True, "seconds_left": card_learning.seconds_left()}
+
+
+@router.delete("/learn")
+async def learn_cancel():
+    card_learning.disarm()
+    return {"armed": False, "seconds_left": 0}
+
+
+# Catch-all path parameter – keep last so fixed paths like /learn win
+@router.delete("/{tag_uid}")
+async def delete_tag(tag_uid: str):
+    with Session(get_engine()) as session:
+        tag = session.exec(
+            select(RfidTag).where(RfidTag.uid == tag_uid)
+        ).first()
+        if not tag:
+            raise HTTPException(status_code=404, detail="Tag not found")
+        session.delete(tag)
+        session.commit()
+        return {"ok": True}

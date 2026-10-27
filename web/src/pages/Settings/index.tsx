@@ -1,7 +1,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { Card, Input, Button, Badge, Spinner } from "@/components/ui";
-import InteractiveSpotifySetup from "./InteractiveSpotifySetup";
+import SpotifyPairing from "./SpotifyPairing";
 
 interface EnvEntry {
   key:         string;
@@ -21,21 +21,11 @@ interface WifiStatus {
   hotspot:    boolean;
 }
 
-interface SpotifyStatus {
-  has_client_id:     boolean;
-  has_secret:        boolean;
-  has_refresh_token: boolean;
-  oauth_complete:    boolean;
-}
-
 const SECTION_LABELS: Record<string, string> = {
   spotify:  "Spotify – Gerät",
   hotspot:  "WLAN Hotspot (Ersteinrichtung)",
   hardware: "Hardware (Erweitert)",
 };
-
-// Sections rendered by custom components, not the generic field renderer
-const CUSTOM_SECTIONS = new Set(["spotify_api"]);
 
 const fetcher = async (url: string) => {
   const r = await fetch(url);
@@ -46,11 +36,6 @@ const fetcher = async (url: string) => {
 export default function SettingsPage() {
   const { data: entries, mutate } = useSWR<EnvEntry[]>("/api/settings/env/all", fetcher);
   const { data: wifi } = useSWR<WifiStatus>("/api/wifi/status", fetcher);
-  const { data: spotifyStatus, mutate: mutateSpotify } = useSWR<SpotifyStatus>(
-    "/api/settings/spotify/status",
-    fetcher,
-    { refreshInterval: 5000 } // poll every 5s so UI updates after OAuth callback
-  );
 
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<Record<string, string>>({});
@@ -68,7 +53,6 @@ export default function SettingsPage() {
       });
       setSaved({ ...saved, [key]: true });
       mutate();
-      mutateSpotify();
       setTimeout(() => setSaved({ ...saved, [key]: false }), 2000);
     } finally {
       setLoading({ ...loading, [key]: false });
@@ -125,22 +109,16 @@ export default function SettingsPage() {
         </Card>
       )}
 
-      {/* Spotify Web API Setup – custom interactive component */}
+      {/* Spotify account of the box (go-librespot device pairing) */}
       <div>
         <h2 className="font-display font-bold text-xl text-paper mb-3">
-          Spotify Web API Setup
+          Spotify-Konto der Box
         </h2>
-        <InteractiveSpotifySetup
-          hasClientId={spotifyStatus?.has_client_id ?? false}
-          hasSecret={spotifyStatus?.has_secret ?? false}
-          hasRefreshToken={spotifyStatus?.has_refresh_token ?? false}
-          onCredentialsSaved={mutateSpotify}
-        />
+        <SpotifyPairing />
       </div>
 
-      {/* Generic Settings Sections (excludes custom-rendered ones) */}
+      {/* Generic Settings Sections */}
       {Object.entries(bySection)
-        .filter(([section]) => !CUSTOM_SECTIONS.has(section))
         .map(([section, items]) => (
           <div key={section}>
             <h2 className="font-display font-bold text-xl text-paper mb-3">

@@ -36,6 +36,7 @@ class DisplayMode(str, Enum):
     PLAYING    = "playing"
     USER_LOGIN = "user_login"
     SETUP      = "setup"
+    PAIRING    = "pairing"
     ERROR      = "error"
 
 
@@ -88,6 +89,10 @@ class BaseDisplay(ABC):
     def show_setup(self, ssid: str, ip: str) -> None: ...
 
     @abstractmethod
+    def show_pairing(self, code: str) -> None:
+        """Show the Spotify pairing code (entered by a parent at spotify.com/pair)."""
+
+    @abstractmethod
     def show_error(self, message: str) -> None: ...
 
 
@@ -130,6 +135,10 @@ class NullDisplay(BaseDisplay):
     def show_setup(self, ssid: str, ip: str) -> None:
         self._current_mode = DisplayMode.SETUP
         logger.info(f"[DISPLAY] SETUP – SSID: {ssid}  IP: {ip}")
+
+    def show_pairing(self, code: str) -> None:
+        self._current_mode = DisplayMode.PAIRING
+        logger.info(f"[DISPLAY] SPOTIFY – spotify.com/pair  Code: {code}")
 
     def show_error(self, message: str) -> None:
         self._current_mode = DisplayMode.ERROR
@@ -286,6 +295,19 @@ class OledDisplay(BaseDisplay):
             d.text((4, 20), f"WiFi: {ssid[:14]}", fill=255)
             d.text((4, 34), f"IP:   {ip}",        fill=255)
             d.text((4, 50), "Browser oeffnen",     fill=255)
+        self._draw(draw)
+
+    def show_pairing(self, code: str) -> None:
+        self._current_mode = DisplayMode.PAIRING
+        if not self._available:
+            logger.info(f"[DISPLAY] SPOTIFY – spotify.com/pair  Code: {code}")
+            return
+
+        def draw(d):
+            d.text((4, 2),  "Spotify verbinden",  fill=255)
+            d.line([(0, 16), (self._width, 16)],  fill=255)
+            d.text((4, 20), "spotify.com/pair",   fill=255)
+            d.text((4, 38), f"Code: {code[:12]}", fill=255)
         self._draw(draw)
 
     def show_error(self, message: str) -> None:
@@ -461,6 +483,19 @@ class TftDisplay(BaseDisplay):
             d.text((8, 38),  f"WiFi: {ssid[:18]}", fill="white")
             d.text((8, 58),  f"IP:   {ip}",        fill="white")
             d.text((8, 78),  "Browser oeffnen",     fill="white")
+        self._draw(draw)
+
+    def show_pairing(self, code: str) -> None:
+        self._current_mode = DisplayMode.PAIRING
+        if not self._available:
+            logger.info(f"[DISPLAY] SPOTIFY – spotify.com/pair  Code: {code}")
+            return
+
+        def draw(d):
+            d.text((8, 8),   "Spotify verbinden",  fill="white")
+            d.line([(0, 28), (self._width, 28)],   fill="white")
+            d.text((8, 38),  "spotify.com/pair",   fill="white")
+            d.text((8, 58),  f"Code: {code[:16]}", fill="white")
         self._draw(draw)
 
     def show_error(self, message: str) -> None:

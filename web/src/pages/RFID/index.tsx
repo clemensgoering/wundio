@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Button, Card, Modal, Input, Select, Spinner, Badge } from "@/components/ui";
+import CardLearning from "./CardLearning";
 import type { RfidTag, User } from "@/types/api";
 
 const TAG_TYPES = ["user", "playlist", "action"] as const;
@@ -114,6 +115,8 @@ export default function RfidPage() {
         <Button onClick={openModal}>+ Tag zuweisen</Button>
       </div>
 
+      <CardLearning onLearned={() => { mutateTags(); }} />
+
       {!tags ? <Spinner /> : tags.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="text-muted">
@@ -201,8 +204,8 @@ export default function RfidPage() {
             )}
             {form.tag_type === "playlist" && (
               <Input
-                label="Spotify Playlist URI"
-                placeholder="spotify:playlist:37i9dQZF1DX..."
+                label="Spotify-Link oder URI"
+                placeholder="https://open.spotify.com/album/..."
                 value={form.spotify_uri}
                 onChange={e => patch("spotify_uri", e.target.value)}
               />

@@ -9,6 +9,7 @@ Consumers:
 Event types and their LED/UI semantics:
   rfid_scan       → scanning pulse (amber, 1s)
   rfid_unknown    → error flash (red, 0.5s)
+  rfid_learned    → success pulse (teal, 2s) – card bound to current playback
   playback_start  → success pulse (teal, 1.5s)
   playback_pause  → dim pulse (white, 0.5s)
   playback_stop   → off

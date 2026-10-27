@@ -34,30 +34,6 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
         "section":     "spotify",
         "secret":      False,
     },
-    # ── Spotify Web API (REFRESH_TOKEN is set via OAuth, not manually) ─────
-    "SPOTIFY_CLIENT_ID": {
-        "label":       "Client ID",
-        "description": "Spotify Developer App – Client ID",
-        "type":        "text",
-        "section":     "spotify_api",
-        "secret":      False,
-    },
-    "SPOTIFY_CLIENT_SECRET": {
-        "label":       "Client Secret",
-        "description": "Spotify Developer App – Client Secret",
-        "type":        "password",
-        "section":     "spotify_api",
-        "secret":      True,
-    },
-    "PI_LOCAL_IP": {
-        "label":       "Pi IP-Adresse",
-        "description": "Lokale IP dieser Box – wird beim Spotify-Setup automatisch gesetzt",
-        "type":        "text",
-        "section":     "spotify_api",
-        "secret":      False,
-    },
-    # SPOTIFY_REFRESH_TOKEN is intentionally excluded from the UI schema.
-    # It is written automatically by the OAuth callback (/api/spotify/callback).
     # ── Display ────────────────────────────────────────────────────────────
     "DISPLAY_TYPE": {
         "label":       "Display-Typ",
@@ -290,20 +266,3 @@ async def write_setting(key: str, data: SettingWrite):
     set_setting(key, data.value)
     log_event("settings", f"Einstellung gespeichert: {key}")
     return {"ok": True}
-
-# ── Spotify routes ────────────────────────────────────────────────────────────
-
-@router.get("/spotify/status")
-async def spotify_oauth_status():
-    """Check if Spotify OAuth is complete."""
-    current = _read_env()
-    return {
-        "has_client_id": bool(current.get("SPOTIFY_CLIENT_ID", "")),
-        "has_secret": bool(current.get("SPOTIFY_CLIENT_SECRET", "")),
-        "has_refresh_token": bool(current.get("SPOTIFY_REFRESH_TOKEN", "")),
-        "oauth_complete": all([
-            current.get("SPOTIFY_CLIENT_ID"),
-            current.get("SPOTIFY_CLIENT_SECRET"),
-            current.get("SPOTIFY_REFRESH_TOKEN"),
-        ]),
-    }

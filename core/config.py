@@ -70,16 +70,15 @@ class Settings(BaseSettings):
     button_vol_up_pin: int = 23
     button_vol_down_pin: int = 24
 
-    # ── Spotify / librespot ───────────────────────────────────────────
+    # ── Spotify / go-librespot ────────────────────────────────────────
     spotify_device_name: str = "Wundio"
     spotify_bitrate: int = 160
-    # Web API credentials (optional – needed for RFID playlist auto-play)
-    # Setup guide: https://wundio.dev/docs/spotify-setup
-    spotify_client_id:     str = ""
-    spotify_client_secret: str = ""
-    spotify_refresh_token: str = ""
-    spotify_redirect_uri:  str = ""
-    pi_local_ip: str = ""
+    # go-librespot config + state.json (holds the box's Spotify credentials)
+    spotify_config_dir: str = "/var/lib/wundio/spotify"
+    # Local API port – bound to 127.0.0.1 only
+    spotify_api_port: int = 3678
+    # Keep the box discoverable via Spotify Connect on the local network
+    spotify_zeroconf: bool = True
 
     # ── WiFi Hotspot (first-run AP) ───────────────────────────────────
     hotspot_ssid: str = "Wundio-Setup"

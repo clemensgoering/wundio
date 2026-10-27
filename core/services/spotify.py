@@ -1,37 +1,39 @@
 """
-Wundio – Spotify Service (librespot)
+Wundio – Spotify Service (go-librespot)
 
-Manages the librespot subprocess and exposes playback control.
-librespot runs as a separate process; we communicate via:
-  - subprocess spawn/terminate for lifecycle
-  - librespot's --onevent script hook for state changes
-  - /tmp/wundio-player.json for current track state (written by event hook)
+The box runs go-librespot as a child process with its own Spotify account
+(recommended: a dedicated member of a Spotify Premium Family plan).
 
-Playback of a specific URI is triggered via the Spotify Web API (requires
-OAuth credentials in wundio.env). Volume is set via `amixer` using standard
+Login happens once via Spotify device authorization: go-librespot requests a
+pairing code, Wundio shows it on the display and in the web UI, and a parent
+enters it at spotify.com/pair. The credentials are persisted in
+<config_dir>/state.json, so after every reboot the box logs in on its own –
+no phone, no Spotify developer app, no Web API tokens.
+
+All control (RFID playback, buttons, status) goes through go-librespot's local
+HTTP API, bound to 127.0.0.1 only. Volume is set via `amixer` using standard
 percentage syntax, which works across all supported audio backends (USB, I2S,
-HiFiBerry).
+HiFiBerry); go-librespot's own volume stays at 100 %.
 """
 
 import asyncio
-import base64
 import json
 import logging
+import shutil
 import subprocess
-import time
-import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE    = Path("/tmp/wundio-player.json")
-LIBRESPOT_BIN = "/opt/wundio/bin/librespot"
+GO_LIBRESPOT_BIN = "/opt/wundio/bin/go-librespot"
+RESTART_DELAY_S  = 5
 
 
 class PlaybackState:
-    """Snapshot of the current librespot playback state."""
+    """Snapshot of the current playback state."""
 
     def __init__(self) -> None:
         self.playing: bool    = False
@@ -42,6 +44,8 @@ class PlaybackState:
         self.position_ms: int = 0
         self.duration_ms: int = 0
         self.spotify_uri: str = ""
+        self.context_uri: str = ""
+        self.context_name: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -53,109 +57,214 @@ class PlaybackState:
             "position_ms": self.position_ms,
             "duration_ms": self.duration_ms,
             "uri":         self.spotify_uri,
+            "context_uri": self.context_uri,
+            "context_name": self.context_name,
         }
 
 
 class SpotifyService:
     """
-    Wraps librespot and the Spotify Web API.
+    Wraps the go-librespot daemon and its local HTTP API.
 
-    librespot acts as a Spotify Connect endpoint – the user can connect to
-    "Wundio" from any Spotify app on the same network.  Programmatic playback
-    of a specific URI (e.g. when an RFID tag is scanned) additionally requires
-    OAuth credentials stored in wundio.env.
+    The daemon is a Spotify Connect endpoint (visible as "Wundio" in Spotify
+    apps on the same network) and is logged in with the box's own account,
+    so RFID tags can start playback at any time without a phone.
     """
 
     def __init__(self, bitrate: int = 160) -> None:
-        self._bitrate     = bitrate
-        self._process: Optional[asyncio.subprocess.Process] = None
-        self._state       = PlaybackState()
-        self._available   = False
         from config import get_settings
         cfg = get_settings()
+        self._bitrate      = getattr(cfg, "spotify_bitrate", 0) or bitrate
         self._device_name: str = getattr(cfg, "spotify_device_name", "") or "Wundio"
+        self._config_dir   = Path(getattr(cfg, "spotify_config_dir", "") or "/var/lib/wundio/spotify")
+        self._api_port: int = getattr(cfg, "spotify_api_port", 0) or 3678
+        self._zeroconf: bool = bool(getattr(cfg, "spotify_zeroconf", True))
+        self._bin_path     = GO_LIBRESPOT_BIN
+        self._process: Optional[asyncio.subprocess.Process] = None
+        self._stopping     = False
+        self._state        = PlaybackState()
+        self._available    = False
         logger.info("SpotifyService init – device_name='%s'", self._device_name)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def setup(self) -> bool:
-        if Path(LIBRESPOT_BIN).exists():
+        if Path(GO_LIBRESPOT_BIN).exists():
+            self._bin_path  = GO_LIBRESPOT_BIN
             self._available = True
         else:
-            result = subprocess.run(["which", "librespot"], capture_output=True)
-            self._available = result.returncode == 0
+            found = shutil.which("go-librespot")
+            self._available = found is not None
+            if found:
+                self._bin_path = found
         if not self._available:
-            logger.warning("librespot binary not found – Spotify unavailable")
+            logger.warning("go-librespot binary not found – Spotify unavailable")
         else:
-            logger.info("librespot found – Spotify service ready")
+            logger.info("go-librespot found – Spotify service ready")
         return self._available
 
+    def _build_config(self) -> dict:
+        """go-librespot config. Written as JSON, which is valid YAML."""
+        return {
+            "device_name":      self._device_name,
+            "device_type":      "speaker",
+            "bitrate":          self._bitrate,
+            "audio_backend":    "alsa",
+            "audio_device":     "default",
+            "volume_steps":     100,
+            "initial_volume":   100,
+            "zeroconf_enabled": self._zeroconf,
+            "credentials":      {"type": "device_auth"},
+            "server": {
+                "enabled": True,
+                "address": "127.0.0.1",
+                "port":    self._api_port,
+            },
+        }
+
+    def write_config(self) -> None:
+        self._config_dir.mkdir(parents=True, exist_ok=True)
+        (self._config_dir / "config.yml").write_text(
+            json.dumps(self._build_config(), indent=2)
+        )
+
     async def start(self) -> None:
-        """
-        Spawn librespot subprocess in Zeroconf mode.
-        The device registers on the local network automatically.
-        When an RFID tag is scanned, play_uri() transfers playback here via the Web API.
-        """
+        """Write the config and spawn go-librespot."""
         if not self._available:
-            logger.info("Spotify service in mock mode (no librespot)")
+            logger.info("Spotify service in mock mode (no go-librespot)")
             return
 
-        bin_path   = LIBRESPOT_BIN if Path(LIBRESPOT_BIN).exists() else "librespot"
-        event_hook = "/opt/wundio/scripts/librespot-event.sh"
-
-        cmd = [
-            bin_path,
-            "--name",    self._device_name,
-            "--bitrate", str(self._bitrate),
-            "--backend", "alsa",
-            "--disable-audio-cache",
-            "--initial-volume", str(self._state.volume),
-        ]
-        if Path(event_hook).exists():
-            cmd += ["--onevent", event_hook]
-
-        logger.info("Starting librespot: %s", " ".join(cmd))
+        self._stopping = False
+        self.write_config()
+        cmd = [self._bin_path, "-config_dir", str(self._config_dir)]
+        logger.info("Starting go-librespot: %s", " ".join(cmd))
         self._process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        asyncio.create_task(self._monitor())
+        asyncio.create_task(self._monitor(self._process))
 
-    async def _monitor(self) -> None:
-        """Log librespot stderr and restart on unexpected exit."""
-        if not self._process:
-            return
-        async for line in self._process.stderr:
-            decoded = line.decode().strip()
+    async def _monitor(self, process: asyncio.subprocess.Process) -> None:
+        """Forward go-librespot output to our log and restart on unexpected exit."""
+        async for line in process.stdout:
+            decoded = line.decode(errors="replace").strip()
             if decoded:
-                logger.debug("[librespot] %s", decoded)
-        ret = await self._process.wait()
-        if ret != 0:
-            logger.warning("librespot exited with code %d – restarting in 5s", ret)
-            await asyncio.sleep(5)
+                logger.debug("[go-librespot] %s", decoded)
+        ret = await process.wait()
+        if self._stopping or process is not self._process:
+            return
+        logger.warning("go-librespot exited with code %d – restarting in %ds", ret, RESTART_DELAY_S)
+        await asyncio.sleep(RESTART_DELAY_S)
+        if not self._stopping:
             await self.start()
 
     def stop(self) -> None:
-        if self._process:
+        """Terminate the daemon (app shutdown). Use pause() to stop playback."""
+        self._stopping = True
+        if self._process and self._process.returncode is None:
             self._process.terminate()
-            self._process = None
+        self._process = None
+
+    def is_running(self) -> bool:
+        return self._process is not None and self._process.returncode is None
+
+    async def logout(self) -> bool:
+        """
+        Forget the box's Spotify account and restart go-librespot, which then
+        requests a fresh pairing code.
+        """
+        self.stop()
+        state_file = self._config_dir / "state.json"
+        try:
+            state_file.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Could not remove %s: %s", state_file, exc)
+            return False
+        await asyncio.sleep(1)
+        await self.start()
+        return True
+
+    # ── Local API ─────────────────────────────────────────────────────────────
+
+    def _api(self, method: str, path: str, body: dict | None = None,
+             timeout: float = 5) -> tuple[int, Optional[dict]]:
+        """
+        Call go-librespot's local API. Returns (http_status, json_body).
+        http_status is 0 when the daemon is not running or unreachable.
+        """
+        if not self.is_running():
+            return 0, None
+        data =json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self._api_port}{path}",
+            data=data,
+            headers={"Content-Type": "application/json"} if data else {},
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                return resp.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            logger.warning("go-librespot %s %s → HTTP %d", method, path, exc.code)
+            return exc.code, None
+        except Exception as exc:
+            logger.debug("go-librespot %s %s unreachable: %s", method, path, exc)
+            return 0, None
+
+    def status_info(self) -> dict:
+        """Login / pairing status for the web UI and the display."""
+        info = {
+            "installed":      self._available,
+            "running":        self.is_running(),
+            "logged_in":      False,
+            "username":       "",
+            "device_name":    self._device_name,
+            "playback_ready": False,
+            "pairing":        None,
+        }
+        if not info["running"]:
+            return info
+
+        code, root = self._api("GET", "/")
+        if code == 200 and root:
+            info["playback_ready"] = bool(root.get("playback_ready"))
+
+        code, status = self._api("GET", "/status")
+        if code == 200 and status:
+            info["logged_in"]   = True
+            info["username"]    = status.get("username") or ""
+            info["device_name"] = status.get("device_name") or self._device_name
+            return info
+
+        code, pairing = self._api("GET", "/auth/code")
+        if code == 200 and pairing:
+            info["pairing"] = {
+                "url":        pairing.get("url", ""),
+                "code":       pairing.get("code", ""),
+                "expires_at": pairing.get("expires_at", ""),
+            }
+        return info
 
     # ── State ─────────────────────────────────────────────────────────────────
 
     def refresh_state(self) -> PlaybackState:
-        try:
-            if STATE_FILE.exists():
-                data = json.loads(STATE_FILE.read_text())
-                self._state.playing     = data.get("playing", False)
-                self._state.track_name  = data.get("track", "")
-                self._state.artist_name = data.get("artist", "")
-                self._state.album_name  = data.get("album", "")
-                self._state.position_ms = data.get("position_ms", 0)
-                self._state.duration_ms = data.get("duration_ms", 0)
-                self._state.spotify_uri = data.get("uri", "")
-        except Exception as exc:
-            logger.warning("Could not read player state: %s", exc)
+        """Update the cached state from go-librespot. Keeps the last state on failure."""
+        code, status = self._api("GET", "/status", timeout=2)
+        if code == 204:
+            self._state.playing = False
+        elif code == 200 and status:
+            track = status.get("track") or {}
+            self._state.playing     = not (status.get("stopped") or status.get("paused"))
+            self._state.track_name  = track.get("name", "")
+            self._state.artist_name = ", ".join(track.get("artist_names") or [])
+            self._state.album_name  = track.get("album_name", "")
+            self._state.position_ms = track.get("position", 0)
+            self._state.duration_ms = track.get("duration", 0)
+            self._state.spotify_uri = track.get("uri", "")
+            self._state.context_uri = status.get("context_uri") or ""
+            self._state.context_name = status.get("context_name") or ""
         return self._state
 
     def get_state(self) -> PlaybackState:
@@ -173,286 +282,47 @@ class SpotifyService:
             )
         except FileNotFoundError:
             logger.debug("amixer not available – volume mock")
-        STATE_FILE.parent.mkdir(exist_ok=True)
-        try:
-            state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
-            state["volume"] = volume
-            STATE_FILE.write_text(json.dumps(state))
-        except Exception:
-            pass
 
     # ── Playback control ──────────────────────────────────────────────────────
 
-    def _fetch_access_token(self, client_id: str, client_secret: str, refresh_token: str) -> str:
-        creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-        req = urllib.request.Request(
-            "https://accounts.spotify.com/api/token",
-            data=urllib.parse.urlencode({
-                "grant_type":    "refresh_token",
-                "refresh_token": refresh_token,
-            }).encode(),
-            headers={
-                "Authorization": f"Basic {creds}",
-                "Content-Type":  "application/x-www-form-urlencoded",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-        token = data.get("access_token", "")
-        if not token:
-            raise ValueError("Spotify token refresh returned no access_token")
-        return token
-
-    def _find_device(self, access_token: str) -> tuple[Optional[str], bool]:
-        """Return (device_id, is_active) for this Wundio instance, or (None, False)."""
-        req = urllib.request.Request(
-            "https://api.spotify.com/v1/me/player/devices",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            devices = json.loads(resp.read()).get("devices", [])
-
-        logger.debug("Spotify devices: %s", [d.get("name") for d in devices])
-
-        for d in devices:
-            if self._device_name.lower() in d.get("name", "").lower():
-                return d["id"], d.get("is_active", False)
-        return None, False
-
     def play_uri(self, spotify_uri: str) -> bool:
         """
-        Trigger playback of a Spotify URI exclusively on this Pi.
-
-        Strategy:
-          1. Refresh access token
-          2. Find librespot device by name (retry once after 2s if not visible)
-          3. Transfer playback to this device if not already active
-          4. Start playback with explicit device_id
-
-        Returns True if playback was successfully started.
+        Start playback of a Spotify URI (track, album, playlist, show, episode)
+        on this box. Returns True if go-librespot accepted the request.
         """
-        from config import get_settings
-        cfg = get_settings()
-        client_id     = getattr(cfg, "spotify_client_id",     "")
-        client_secret = getattr(cfg, "spotify_client_secret", "")
-        refresh_token = getattr(cfg, "spotify_refresh_token", "")
-
-        if not all([client_id, client_secret, refresh_token]):
-            logger.info(
-                "Spotify Web API not configured – cannot play %s",
-                spotify_uri,
-            )
-            return False
-
-        try:
-            # 1. Token
-            access_token = self._fetch_access_token(client_id, client_secret, refresh_token)
-            auth_header  = {"Authorization": f"Bearer {access_token}"}
-
-            # 2. Find device (retry once)
-            device_id, is_active = self._find_device(access_token)
-            if not device_id:
-                logger.info("Device '%s' not visible – waiting 2s then retrying", self._device_name)
-                time.sleep(2)
-                device_id, is_active = self._find_device(access_token)
-
-            if not device_id:
-                logger.warning(
-                    "Spotify device '%s' not found. Is librespot running?",
-                    self._device_name,
-                )
-                return False
-
-            # 3. Transfer playback so this device becomes active
-            if not is_active:
-                logger.info("Transferring playback to '%s'", self._device_name)
-                transfer_req = urllib.request.Request(
-                    "https://api.spotify.com/v1/me/player",
-                    data=json.dumps({"device_ids": [device_id], "play": False}).encode(),
-                    headers={**auth_header, "Content-Type": "application/json"},
-                    method="PUT",
-                )
-                try:
-                    with urllib.request.urlopen(transfer_req, timeout=8) as r:
-                        logger.debug("Transfer status: %d", r.status)
-                    time.sleep(0.5)
-                except Exception as exc:
-                    logger.warning("Transfer playback failed (non-fatal): %s", exc)
-
-            # 4. Play
-            body = (
-                {"uris": [spotify_uri]}
-                if "track" in spotify_uri
-                else {"context_uri": spotify_uri}
-            )
-            play_req = urllib.request.Request(
-                f"https://api.spotify.com/v1/me/player/play?device_id={device_id}",
-                data=json.dumps(body).encode(),
-                headers={**auth_header, "Content-Type": "application/json"},
-                method="PUT",
-            )
-            with urllib.request.urlopen(play_req, timeout=8) as resp:
-                logger.info(
-                    "Playback started: %s on '%s' (HTTP %d)",
-                    spotify_uri, self._device_name, resp.status,
-                )
+        code, _ = self._api("POST", "/player/play", {"uri": spotify_uri}, timeout=10)
+        if code == 200:
+            logger.info("Playback started: %s", spotify_uri)
             return True
-
-        except Exception as exc:
-            logger.warning("Spotify play_uri failed: %s", exc)
-            return False
-
-    def ensure_device_visible(self, timeout_s: int = 15) -> bool:
-        """
-        Ensure this librespot device is visible in the Spotify device list.
-
-        librespot only registers with Spotify's servers after it has made
-        at least one connection. This method triggers that registration by:
-          1. Fetching the device list (which wakes up librespot's zeroconf)
-          2. If not visible: transferring playback to this device (forces registration)
-          3. Retrying with backoff until visible or timeout
-
-        Call this once at startup (from main.py lifespan) so the device is
-        always ready when an RFID tag is scanned.
-
-        Returns True if device became visible, False on timeout.
-        """
-        from config import get_settings
-        cfg = get_settings()
-        client_id     = getattr(cfg, "spotify_client_id",     "")
-        client_secret = getattr(cfg, "spotify_client_secret", "")
-        refresh_token = getattr(cfg, "spotify_refresh_token", "")
-
-        if not all([client_id, client_secret, refresh_token]):
-            logger.debug("Spotify not configured – skipping device warmup")
-            return False
-
-        try:
-            access_token = self._fetch_access_token(client_id, client_secret, refresh_token)
-        except Exception as exc:
-            logger.warning("Device warmup – token fetch failed: %s", exc)
-            return False
-
-        deadline = time.time() + timeout_s
-        attempt  = 0
-
-        while time.time() < deadline:
-            attempt += 1
-            device_id, is_active = self._find_device(access_token)
-
-            if device_id:
-                logger.info(
-                    "Spotify device '%s' visible after %d attempt(s) – ready",
-                    self._device_name, attempt,
-                )
-                return True
-
-            logger.debug(
-                "Device warmup attempt %d – '%s' not visible yet",
-                attempt, self._device_name,
-            )
-
-            # On second attempt: try a silent transfer to force registration
-            if attempt == 2:
-                try:
-                    # Get any available device to "wake" the session
-                    req = urllib.request.Request(
-                        "https://api.spotify.com/v1/me/player/devices",
-                        headers={"Authorization": f"Bearer {access_token}"},
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        all_devices = json.loads(resp.read()).get("devices", [])
-
-                    if all_devices:
-                        # Transfer to any device first, then we'll re-transfer
-                        # to Wundio when RFID is scanned
-                        logger.debug(
-                            "Warming up via existing device: %s",
-                            all_devices[0].get("name"),
-                        )
-                except Exception:
-                    pass
-
-            wait = min(2 ** (attempt - 1), 8)  # 1s, 2s, 4s, 8s, 8s…
-            time.sleep(wait)
-
-        logger.warning(
-            "Device '%s' not visible after %ds – RFID playback will retry on demand",
-            self._device_name, timeout_s,
-        )
+        logger.warning("Spotify play_uri failed for %s (HTTP %d)", spotify_uri, code)
         return False
 
-    async def ensure_device_visible_async(self, timeout_s: int = 15) -> bool:
-        """Async wrapper for ensure_device_visible – use from lifespan."""
-        return await asyncio.to_thread(self.ensure_device_visible, timeout_s)
-
     async def play_uri_async(self, spotify_uri: str) -> bool:
-        """Non-blocking wrapper for play_uri – runs in a thread pool.
-
-        Use this from async contexts (e.g. RFID scan handler) to avoid
-        blocking the event loop during the Spotify API calls.
-        """
+        """Non-blocking wrapper for play_uri – use from async contexts."""
         return await asyncio.to_thread(self.play_uri, spotify_uri)
-    
-    # ── Playback Control Methods. ─────────────────────────────────────────────────────────────────
-     
-    def _send_api(self, method: str, path: str, body: dict | None = None) -> bool:
-        """
-        Generic Spotify Web API call helper.
-        Handles token refresh internally. Returns True on success.
-        """
-        from config import get_settings
-        cfg = get_settings()
-        client_id     = getattr(cfg, "spotify_client_id",     "")
-        client_secret = getattr(cfg, "spotify_client_secret", "")
-        refresh_token = getattr(cfg, "spotify_refresh_token", "")
- 
-        if not all([client_id, client_secret, refresh_token]):
-            logger.debug("Spotify not configured – skipping %s %s", method, path)
-            return False
- 
-        try:
-            access_token = self._fetch_access_token(client_id, client_secret, refresh_token)
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type":  "application/json",
-            }
-            data = json.dumps(body).encode() if body else None
-            req = urllib.request.Request(
-                f"https://api.spotify.com/v1{path}",
-                data=data,
-                headers=headers,
-                method=method,
-            )
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                logger.debug("%s %s → HTTP %d", method, path, resp.status)
-            return True
-        except Exception as exc:
-            logger.warning("Spotify API %s %s failed: %s", method, path, exc)
-            return False
- 
+
+    def _post(self, path: str) -> bool:
+        code, _ = self._api("POST", path)
+        return code == 200
+
     def pause(self) -> bool:
-        """Pause playback on the active Spotify device."""
-        return self._send_api("PUT", "/me/player/pause")
- 
+        return self._post("/player/pause")
+
     def resume(self) -> bool:
-        """Resume playback on the active Spotify device."""
-        return self._send_api("PUT", "/me/player/play")
- 
+        return self._post("/player/resume")
+
     def next_track(self) -> bool:
-        """Skip to next track."""
-        return self._send_api("POST", "/me/player/next")
- 
+        return self._post("/player/next")
+
     def prev_track(self) -> bool:
-        """Skip to previous track."""
-        return self._send_api("POST", "/me/player/previous")
- 
+        return self._post("/player/prev")
+
     def toggle_play_pause(self) -> bool:
-        """Toggle play/pause based on current state."""
-        self.refresh_state()
-        if self._state.playing:
-            return self.pause()
-        return self.resume()
+        ok = self._post("/player/playpause")
+        if ok:
+            self._state.playing = not self._state.playing
+        return ok
+
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/ui";
 import useSWR from "swr";
+import { Link } from "react-router-dom";
 
 interface ServiceInfo {
   active: boolean;
@@ -18,7 +19,7 @@ interface SpotifyDevice {
 interface ServicesData {
   services: {
     "wundio-core":      ServiceInfo;
-    "wundio-librespot": ServiceInfo;
+    "wundio-spotify": ServiceInfo;
   };
   spotify_device: SpotifyDevice;
 }
@@ -46,12 +47,12 @@ export default function ServicesStatus() {
           loading={isLoading}
         />
 
-        {/* wundio-librespot */}
+        {/* wundio-spotify */}
         <ServiceRow
-          label="librespot"
-          description="Spotify Connect Prozess (läuft als Teil von wundio-core)"
-          active={data?.services["wundio-librespot"]?.active}
-          since={data?.services["wundio-librespot"]?.since}
+          label="go-librespot"
+          description="Spotify-Player (läuft als Teil von wundio-core)"
+          active={data?.services["wundio-spotify"]?.active}
+          since={data?.services["wundio-spotify"]?.since}
           loading={isLoading}
         />
 
@@ -94,11 +95,13 @@ export default function ServicesStatus() {
                     : "Gerät registriert. Wird bei nächstem RFID-Scan aktiviert."
                   : data?.spotify_device.error || "Gerät nicht sichtbar."}
               </p>
-              {data && !data.spotify_device.found && !data.spotify_device.error.includes("nicht konfiguriert") && (
+              {data && !data.spotify_device.found && (
                 <p className="text-[10px] text-amber/80 mt-1">
-                  Einmalig nötig: Öffne die Spotify-App → "Gerät auswählen" → wähle{" "}
-                  <strong className="text-paper">Wundio</strong>.
-                  Danach startet Wundio die Wiedergabe automatisch bei jedem RFID-Scan.
+                  Verbinde das Spotify-Konto der Box unter{" "}
+                  <Link to="/settings" className="text-teal underline underline-offset-2">
+                    Einstellungen
+                  </Link>
+                  .
                 </p>
               )}
             </div>

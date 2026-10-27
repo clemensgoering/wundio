@@ -137,7 +137,12 @@ fi
 ok "Netzwerk wiederhergestellt"
 
 # -- 4. Remove Raspotify (only if Wundio installed it)
-section "4/6  Removing Spotify (librespot)"
+section "4/6  Removing Spotify (go-librespot / librespot)"
+
+# go-librespot binary and the box's Spotify credentials
+rm -f /opt/wundio/bin/go-librespot
+rm -rf /var/lib/wundio/spotify
+ok "go-librespot und Spotify-Anmeldung der Box entfernt"
 
 if _wundio_installed_pkg "raspotify" || _wundio_installed_pkg "librespot"; then
     systemctl stop    raspotify 2>/dev/null || true

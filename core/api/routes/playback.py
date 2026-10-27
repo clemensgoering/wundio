@@ -1,6 +1,6 @@
 """
 Wundio – /api/playback routes
-Controls librespot / reports current state.
+Controls go-librespot / reports current state.
 """
 import asyncio
 

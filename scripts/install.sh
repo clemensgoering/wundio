@@ -258,6 +258,7 @@ APT_PACKAGES=(
     libjpeg-dev zlib1g-dev libfreetype6-dev
     curl wget
     alsa-utils
+    libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev
     python3-pillow
     python3-rpi.gpio
     python3-spidev
@@ -297,6 +298,7 @@ run_spin "apt packages" apt-get install -y \
     libjpeg-dev zlib1g-dev libfreetype6-dev \
     curl wget \
     alsa-utils \
+    libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev \
     python3-pillow \
     python3-rpi.gpio \
     python3-spidev
@@ -419,62 +421,51 @@ fi
 
 ok "Python environment ready" 
 
-# -- 6b/10 librespot via Raspotify
-section "6b/10 Installing Spotify (librespot / Raspotify)"
+# -- 6b/10 Spotify player (go-librespot)
+# Pinned release: the box logs in once via spotify.com/pair (device auth) and
+# is controlled through go-librespot's local API. Codec libraries come from the
+# apt list above (libogg, libvorbis, flac, mpg123, alsa).
+section "6b/10 Installing Spotify (go-librespot)"
 
-LS_DONE=false
+GO_LIBRESPOT_VERSION="v0.10.5"
 
-# Try Raspotify package first (fastest, maintained Debian package)
-if curl -fsSL https://dtcooper.github.io/raspotify/install.sh | bash >> "$LOG_FILE" 2>&1; then
-    LS_DONE=true
-    ok "Raspotify installed"
+# Raspotify runs its own librespot service that would fight over the speaker
+if systemctl list-unit-files raspotify.service 2>/dev/null | grep -q raspotify; then
+    systemctl disable --now raspotify >> "$LOG_FILE" 2>&1 || true
+    warn "Raspotify service disabled (replaced by go-librespot)"
 fi
 
-# Fallback: pre-built librespot binary from GitHub releases
-if [[ "$LS_DONE" == "false" ]]; then
-    ARCH=$(uname -m)
-    case "$ARCH" in
-        armv7l)  LS_ASSET="librespot-linux-armv7"  ;;
-        aarch64) LS_ASSET="librespot-linux-aarch64" ;;
-        x86_64)  LS_ASSET="librespot-linux-x86_64"  ;;
-        *)       LS_ASSET="" ;;
-    esac
-    if [[ -n "$LS_ASSET" ]]; then
-        LS_URL="https://github.com/librespot-org/librespot/releases/latest/download/${LS_ASSET}"
-        if curl -fsSL "$LS_URL" -o "${INSTALL_DIR}/bin/librespot" >> "$LOG_FILE" 2>&1; then
-            chmod +x "${INSTALL_DIR}/bin/librespot"
-            LS_DONE=true
-            ok "librespot binary installed"
-        fi
-    fi
-fi
+case "$(uname -m)" in
+    aarch64)       GLR_ASSET="go-librespot_linux_arm64.tar.gz"  ;;
+    armv7l|armv6l) GLR_ASSET="go-librespot_linux_armv6.tar.gz"  ;;
+    x86_64)        GLR_ASSET="go-librespot_linux_x86_64.tar.gz" ;;
+    *)             GLR_ASSET="" ;;
+esac
 
-# Last resort: build from source (slow on Pi 3, shows live output)
-if [[ "$LS_DONE" == "false" ]]; then
-    warn "No package available - building librespot from Rust source."
-    warn "On Pi 3 this takes 30-60 minutes. Output will be shown live."
-    echo ""
-    apt-get install -y pkg-config libssl-dev libasound2-dev >> "$LOG_FILE" 2>&1
-    if ! command -v cargo &>/dev/null; then
-        info "Installing Rust toolchain..."
-        curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    fi
-    # shellcheck disable=SC1090
-    source "$HOME/.cargo/env" 2>/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
-    info "Building librespot - live output below:"
-    echo "------------------------------------------"
-    cargo install librespot --root "${INSTALL_DIR}" 2>&1 | tee -a "$LOG_FILE"
-    echo "------------------------------------------"
-    if [[ -f "${INSTALL_DIR}/bin/librespot" ]]; then
-        LS_DONE=true
-        ok "librespot built from source"
+if [[ -z "$GLR_ASSET" ]]; then
+    warn "No go-librespot build for $(uname -m) - Spotify disabled"
+else
+    GLR_URL="https://github.com/devgianlu/go-librespot/releases/download/${GO_LIBRESPOT_VERSION}/${GLR_ASSET}"
+    GLR_TMP=$(mktemp -d)
+    mkdir -p "${INSTALL_DIR}/bin"
+    if curl -fsSL "$GLR_URL" -o "${GLR_TMP}/glr.tar.gz" >> "$LOG_FILE" 2>&1 \
+            && tar -xzf "${GLR_TMP}/glr.tar.gz" -C "$GLR_TMP" >> "$LOG_FILE" 2>&1 \
+            && GLR_BIN=$(find "$GLR_TMP" -type f -name go-librespot | head -1) \
+            && [[ -n "$GLR_BIN" ]] \
+            && install -m 755 "$GLR_BIN" "${INSTALL_DIR}/bin/go-librespot"; then
+        ok "go-librespot ${GO_LIBRESPOT_VERSION} installed"
     else
-        error "librespot build failed - see $LOG_FILE"
+        warn "go-librespot download failed - Spotify disabled, re-run the installer (see $LOG_FILE)"
     fi
+    rm -rf "$GLR_TMP"
 fi
 
-chmod +x "${INSTALL_DIR}/scripts/librespot-event.sh" 2>/dev/null || true
-ok "Spotify (librespot) ready"
+# Config + state.json (the box's Spotify credentials) - written by wundio-core
+mkdir -p "${DATA_DIR}/spotify"
+chown -R "$WUNDIO_USER":"$WUNDIO_USER" "${DATA_DIR}/spotify"
+chmod 700 "${DATA_DIR}/spotify"
+rm -f "${INSTALL_DIR}/bin/librespot"
+ok "Spotify (go-librespot) ready"
 
 # -- 7/10 Build Web Interface
 section "7/10 Building Web Interface"
@@ -533,7 +524,7 @@ HOTSPOT_SSID=Wundio-Setup
 HOTSPOT_PASSWORD=wundio123
 HOTSPOT_IP=192.168.50.1
 
-# Spotify / librespot
+# Spotify / go-librespot (login: web interface > Settings > Spotify-Konto der Box)
 SPOTIFY_DEVICE_NAME=Wundio
 SPOTIFY_BITRATE=160
 
