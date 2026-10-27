@@ -75,9 +75,9 @@ ENV_SCHEMA: dict[str, dict[str, Any]] = {
     # ── RFID ──────────────────────────────────────────────────────────────
     "RFID_TYPE": {
         "label":       "RFID-Reader Typ",
-        "description": "rc522 = SPI (Standard) · pn532 = I2C (NFC-kompatibel)",
+        "description": "rc522 = SPI (Standard) · pn532 = I2C (NFC-kompatibel) · rfid2 = M5Stack RFID 2 (I2C, lötfrei)",
         "type":        "select",
-        "options":     ["rc522", "pn532"],
+        "options":     ["rc522", "pn532", "rfid2"],
         "section":     "rfid",
         "secret":      False,
     },

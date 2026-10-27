@@ -30,7 +30,7 @@ class HardwareProfile:
     pi_generation: int = 0   # 3, 4, 5
 
     # Resolved hardware config (from wundio.env via detect())
-    rfid_type:  str = "rc522"   # "rc522" | "pn532"
+    rfid_type:  str = "rc522"   # "rc522" | "pn532" | "rfid2"
     audio_type: str = "usb"     # "usb" | "i2s_max98357" | "hifiberry"
 
     # Feature flags

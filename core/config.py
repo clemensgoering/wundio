@@ -34,11 +34,12 @@ class Settings(BaseSettings):
 
     # ── RFID ──────────────────────────────────────────────────────────
     # rfid_type: "rc522" (SPI, CE0) | "pn532" (I2C, shares bus with OLED)
+    #            | "rfid2" (M5Stack Unit RFID 2 / WS1850S, I2C 0x28, solderless)
     rfid_type:    str = "rc522"
     rfid_rst_pin: int = 25
     rfid_spi_bus: int = 0
     rfid_spi_dev: int = 0
-    rfid_i2c_bus: int = 1    # PN532 only
+    rfid_i2c_bus: int = 1    # PN532 / RFID 2
 
     # ── Audio ─────────────────────────────────────────────────────────
     # audio_type: "usb" | "i2s_max98357" | "hifiberry"

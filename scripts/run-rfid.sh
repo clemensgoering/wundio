@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Wundio – RFID Service Runner
 # Note: RFID is handled internally by wundio-core (services/rfid.py).
-# This script can be used to run RFID diagnostics manually.
+# This script can be used to run RFID diagnostics manually. It uses the
+# reader configured via RFID_TYPE (rc522 | pn532 | rfid2) in wundio.env.
 #
 # Usage: sudo bash scripts/run-rfid.sh
 
@@ -14,39 +15,43 @@ if [[ ! -f "$VENV/bin/python" ]]; then
     exit 1
 fi
 
+# wundio-core holds the reader – release it for the duration of the test
+RESTART_CORE=false
+if systemctl is-active --quiet wundio-core 2>/dev/null; then
+    echo "Stopping wundio-core for the test (restarted afterwards)..."
+    systemctl stop wundio-core
+    RESTART_CORE=true
+fi
+trap '[[ "$RESTART_CORE" == "true" ]] && systemctl start wundio-core' EXIT
+
 echo "Running RFID diagnostic scan..."
 echo "Hold a tag near the reader. Press Ctrl+C to stop."
 echo ""
 
 cd /opt/wundio/core
-"$VENV/bin/python" - << 'PYEOF'
-import sys, time, signal
+"$VENV/bin/python" - << 'PYEOF' || true
+import sys, time
 
-try:
-    import RPi.GPIO as GPIO
-    from mfrc522 import SimpleMFRC522
+from config import get_settings
+from services.rfid import _build_driver_from_config
 
-    GPIO.setwarnings(False)
-    reader = SimpleMFRC522()
-    r = reader.READER
-    print("RC522 initialised. Waiting for tag...")
-
-    def on_exit(sig, frame):
-        GPIO.cleanup()
-        sys.exit(0)
-    signal.signal(signal.SIGINT, on_exit)
-
-    while True:
-        (status, _) = r.MFRC522_Request(r.PICC_REQIDL)
-        if status == r.MI_OK:
-            (status2, uid) = r.MFRC522_Anticoll()
-            if status2 == r.MI_OK:
-                uid_str = "".join(f"{b:02X}" for b in uid)
-                print(f"Tag detected: {uid_str}")
-        time.sleep(0.1)
-
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Run: sudo /opt/wundio/venv/bin/pip install mfrc522 RPi.GPIO")
+rfid_type = get_settings().rfid_type
+driver = _build_driver_from_config()
+if not driver.setup():
+    print(f"Reader '{rfid_type}' not found – check wiring and RFID_TYPE in /etc/wundio/wundio.env")
     sys.exit(1)
+
+print(f"Reader '{rfid_type}' ({type(driver).__name__}) ready. Waiting for tag...")
+last = None
+try:
+    while True:
+        uid = driver.read_uid_blocking()
+        if uid and uid != last:
+            print(f"Tag detected: {uid}")
+        last = uid
+        time.sleep(0.1)
+except KeyboardInterrupt:
+    pass
+finally:
+    driver.teardown()
 PYEOF

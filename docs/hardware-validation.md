@@ -4,8 +4,8 @@ Ziel: Nachweisen, dass Wundio auf echter Hardware stabil läuft, bevor v1.0 und 
 Gehäuse-Design starten. Jeder Abschnitt hat ein klares **Bestanden**-Kriterium.
 Ergebnisse in der Tabelle am Ende eintragen.
 
-Referenz-Aufbau (Tier 1): Raspberry Pi 3B+/4, RC522, MAX98357A, passiver
-Lautsprecher 4 Ω, OLED SSD1306, 5 Taster, microSD 32 GB.
+Gilt für beide Bauvarianten aus [docs/build](build/README.md)
+(„Stecken & Schrauben“ und „Löten“). Variante oben in der Ergebnistabelle notieren.
 
 ---
 
@@ -16,34 +16,18 @@ Lautsprecher 4 Ω, OLED SSD1306, 5 Taster, microSD 32 GB.
       WLAN vorkonfigurieren (oder später über den Wundio-Hotspot).
 - [ ] Spotify: im Premium-Familienabo ein eigenes Mitglied für die Box anlegen.
 
-## 1. Verkabelung (Strom aus!)
+## 1. Aufbau (Strom aus!)
 
-| Bauteil | Pin am Bauteil | Raspberry Pi (BCM / physischer Pin) |
-|---|---|---|
-| MAX98357A | VIN | 5V (Pin 2) |
-| | GND | GND (Pin 6) |
-| | BCLK | BCM18 (Pin 12) |
-| | LRC | BCM19 (Pin 35) |
-| | DIN | BCM21 (Pin 40) |
-| | SD / GAIN | offen lassen (Standard: Mono-Mix, 9 dB) |
-| RC522 | 3.3V | 3.3V (Pin 1) – **nicht 5 V** |
-| | GND | GND (Pin 20) |
-| | SDA | BCM8 / CE0 (Pin 24) |
-| | SCK | BCM11 (Pin 23) |
-| | MOSI | BCM10 (Pin 19) |
-| | MISO | BCM9 (Pin 21) |
-| | RST | BCM25 (Pin 22) |
-| OLED SSD1306 | VCC / GND | 3.3V (Pin 17) / GND (Pin 9) |
-| | SDA / SCL | BCM2 (Pin 3) / BCM3 (Pin 5) |
-| Taster (gegen GND) | Play/Pause · Next · Prev · Vol+ · Vol− | BCM17 (11) · BCM27 (13) · BCM22 (15) · BCM23 (16) · BCM24 (18) |
-
-Lautsprecher an die Schraubklemme `+`/`−` des MAX98357A.
+- [ ] Nach der Anleitung der gewählten Variante verkabeln:
+      [Stecken & Schrauben](build/stecken-schrauben.md) oder [Löten](build/loeten.md).
+- [ ] Zugtest: an jedem Kabel kräftig ziehen – nichts löst sich.
+- [ ] Sichtprüfung: keine blanken Drähte, die sich berühren können.
 
 ## 2. Installation
 
 ```bash
 curl -fsSL https://wundio.dev/install.sh | sudo bash
-# Audio-Frage: 2) MAX98357A
+# Antworten je Variante: siehe docs/build/README.md (Installer-Antworten)
 sudo reboot
 ```
 
@@ -73,6 +57,11 @@ amixer sset Master 80%                   # lauter
 - [ ] Display zeigt beim Start „Wundio … Starting“, danach „Bereit“.
 - [ ] Karte auflegen → Web-UI *RFID* zeigt die UID, Display „Unbekannter Tag“.
 - [ ] 10× Karte auflegen/abnehmen → jeder Scan wird erkannt, kein Hänger.
+- [ ] Diagnose ohne Web-UI: `sudo bash /opt/wundio/scripts/run-rfid.sh` zeigt die UIDs.
+- [ ] Lesereichweite durch die Deckelwand (2 / 3 / 4 mm) – in mm notieren.
+- [ ] M5Stack RFID 2: liest zuverlässig mit 3,3 V Versorgung? (Falls nicht: Ergebnis notieren,
+      nicht eigenmächtig auf 5 V umklemmen.)
+- [ ] Eine Karte an RC522 **und** RFID 2 testen (falls beide vorhanden) → gleiche UID.
 
 **Bestanden:** Jeder Scan erkannt, Reaktion < 1 s.
 
@@ -127,6 +116,8 @@ amixer sset Master 80%                   # lauter
 ---
 
 ## Ergebnisse
+
+Variante: ☐ Stecken & Schrauben ☐ Löten · Pi-Modell: …
 
 | # | Test | Ergebnis | Notizen |
 |---|---|---|---|

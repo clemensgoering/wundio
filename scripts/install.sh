@@ -181,6 +181,7 @@ echo -e "  ${BOLD}Welchen RFID-Reader verwendest du?${NC}"
 echo ""
 echo "    1) RC522  (SPI, CE0)   ← Standard / wird aktiv getestet"
 echo "    2) PN532  (I2C)        ← stabiler, NFC-kompatibel"
+echo "    3) M5Stack RFID 2 (I2C) ← lötfrei, Grove-Stecker (Bauvariante \"Stecken & Schrauben\")"
 echo ""
 echo -e "  ${YELLOW}Kann jederzeit in der App unter Einstellungen > Hardware geändert werden.${NC}"
 echo ""
@@ -189,7 +190,7 @@ SETUP_RFID_TYPE="rc522"
 SETUP_INSTALL_PN532=false
 
 while true; do
-    read -r -p "  Deine Wahl [1-2]: " RFID_CHOICE </dev/tty
+    read -r -p "  Deine Wahl [1-3]: " RFID_CHOICE </dev/tty
     case "$RFID_CHOICE" in
         1)
             SETUP_RFID_TYPE="rc522"
@@ -200,8 +201,12 @@ while true; do
             SETUP_INSTALL_PN532=true
             ok "RFID PN532 (I2C, teilt Bus mit OLED/Display)"
             break ;;
+        3)
+            SETUP_RFID_TYPE="rfid2"
+            ok "M5Stack RFID 2 (WS1850S, I2C 0x28, teilt Bus mit OLED)"
+            break ;;
         *)
-            echo -e "  ${RED}Ungültige Eingabe. Bitte 1 oder 2 eingeben.${NC}" ;;
+            echo -e "  ${RED}Ungültige Eingabe. Bitte 1-3 eingeben.${NC}" ;;
     esac
 done
 
@@ -210,7 +215,7 @@ echo ""
 echo -e "  ${BOLD}Welche Audio-Ausgabe verwendest du?${NC}"
 echo ""
 echo "    1) USB-Soundkarte        ← Einfachste Option / Pi 3 kompatibel"
-echo "    2) MAX98357A I2S DAC     ← Empfohlen / direkt am Lautsprecher, kein USB"
+echo "    2) MAX98357A I2S DAC     ← Empfohlen – auch Adafruit Speaker Bonnet (lötfrei)"
 echo "    3) HifiBerry DAC HAT     ← belegt 40-Pin, braucht externen Verstärker"
 echo ""
 echo -e "  ${YELLOW}Ändern: Installer erneut ausführen (richtet Boot-Config und ALSA neu ein).${NC}"
@@ -481,6 +486,10 @@ else
     info "No display selected - skipping luma install"
 fi
 
+# M5Stack RFID 2 (WS1850S over I2C) – smbus2 is tiny, install it always so the
+# reader type can be switched later in the web interface
+run_spin "pip smbus2" "$VENV_DIR/bin/pip" install --prefer-binary --quiet smbus2
+
 # PN532 – Adafruit library + blinka (only if PN532 selected)
 if [[ "$SETUP_RFID_TYPE" == "pn532" ]]; then
     run_spin "pip pn532" "$VENV_DIR/bin/pip" install \
@@ -597,7 +606,7 @@ HOTSPOT_IP=192.168.50.1
 SPOTIFY_DEVICE_NAME=Wundio
 SPOTIFY_BITRATE=160
 
-# RFID reader type (rc522 or pn532 – set by installer)
+# RFID reader type (rc522, pn532 or rfid2 – set by installer)
 RFID_TYPE=${SETUP_RFID_TYPE}
 
 # Audio type (usb, i2s_max98357, hifiberry – set by installer)

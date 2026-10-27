@@ -1,16 +1,17 @@
 """
 Wundio – RFID Service
 
-Supports RC522 (SPI, mfrc522) and PN532 (I2C, adafruit-circuitpython-pn532).
+Supports RC522 (SPI, mfrc522), PN532 (I2C, adafruit-circuitpython-pn532) and
+M5Stack Unit RFID 2 (WS1850S, I2C, smbus2 – solderless Grove connector).
 The driver is selected via RFID_TYPE in wundio.env; the service itself is
 driver-agnostic and works identically regardless of which reader is connected.
 
 Config keys:
-  RFID_TYPE=rc522|pn532   (default: rc522)
+  RFID_TYPE=rc522|pn532|rfid2   (default: rc522)
   RFID_RST_PIN=25         (RC522 only, BCM pin number)
   RFID_SPI_BUS=0          (RC522 only)
   RFID_SPI_DEV=0          (RC522 only, CE0)
-  RFID_I2C_BUS=1          (PN532 only)
+  RFID_I2C_BUS=1          (PN532 / RFID 2)
 """
 
 import asyncio
@@ -168,6 +169,125 @@ class PN532Driver(RfidDriver):
         pass   # adafruit-blinka cleans up I2C automatically
 
 
+# ── M5Stack Unit RFID 2 driver (WS1850S, I2C) ─────────────────────────────────
+
+class Rfid2Driver(RfidDriver):
+    """M5Stack Unit RFID 2 (WS1850S) over I2C – solderless, Grove connector.
+
+    The WS1850S uses the MFRC522 register set, accessed over I2C instead of
+    SPI. Only REQA + anticollision are needed to read a UID.
+    Library: smbus2 (installed by install.sh when RFID_TYPE=rfid2).
+    Wiring: Grove → SDA=BCM2/Pin3, SCL=BCM3/Pin5, 3.3V, GND (shares the bus
+    with the OLED at 0x3C).
+
+    UIDs include the BCC check byte (5 bytes), exactly like RC522Driver, so
+    cards keep working when switching between the two readers.
+    """
+
+    I2C_ADDRESS = 0x28
+
+    # MFRC522 registers / commands
+    _COMMAND, _COM_IRQ, _ERROR, _FIFO_DATA, _FIFO_LEVEL = 0x01, 0x04, 0x06, 0x09, 0x0A
+    _CONTROL, _BIT_FRAMING, _MODE, _TX_CONTROL, _TX_ASK = 0x0C, 0x0D, 0x11, 0x14, 0x15
+    _T_MODE, _T_PRESCALER, _T_RELOAD_H, _T_RELOAD_L, _VERSION = 0x2A, 0x2B, 0x2C, 0x2D, 0x37
+    _CMD_IDLE, _CMD_TRANSCEIVE, _CMD_SOFT_RESET = 0x00, 0x0C, 0x0F
+    _PICC_REQA, _PICC_ANTICOLL_CL1 = 0x26, 0x93
+
+    def __init__(self, i2c_bus: int = 1) -> None:
+        super().__init__()
+        self._i2c_bus = i2c_bus
+        self._bus     = None
+
+    # Register access
+    def _write(self, reg: int, value: int) -> None:
+        self._bus.write_byte_data(self.I2C_ADDRESS, reg, value)
+
+    def _read(self, reg: int) -> int:
+        return self._bus.read_byte_data(self.I2C_ADDRESS, reg)
+
+    def _set_bits(self, reg: int, mask: int) -> None:
+        self._write(reg, self._read(reg) | mask)
+
+    def _clear_bits(self, reg: int, mask: int) -> None:
+        self._write(reg, self._read(reg) & ~mask)
+
+    def setup(self) -> bool:
+        try:
+            import time
+            from smbus2 import SMBus
+            self._bus = SMBus(self._i2c_bus)
+            self._write(self._COMMAND, self._CMD_SOFT_RESET)
+            time.sleep(0.05)
+            version = self._read(self._VERSION)
+            if version in (0x00, 0xFF):
+                raise RuntimeError(f"no reader at I2C 0x{self.I2C_ADDRESS:02X}")
+            # Timer ~25 ms, 100 % ASK, CRC preset 0x6363 – same as MFRC522 init
+            self._write(self._T_MODE, 0x80)
+            self._write(self._T_PRESCALER, 0xA9)
+            self._write(self._T_RELOAD_H, 0x03)
+            self._write(self._T_RELOAD_L, 0xE8)
+            self._write(self._TX_ASK, 0x40)
+            self._write(self._MODE, 0x3D)
+            self._set_bits(self._TX_CONTROL, 0x03)   # antenna on
+            self._available = True
+            logger.info(f"RFID 2 (WS1850S) initialised (I2C bus={self._i2c_bus}) version=0x{version:02X}")
+            return True
+        except Exception as e:
+            logger.warning(f"RFID 2 (WS1850S) not available: {e}")
+            self._bus = None
+            return False
+
+    def _transceive(self, data: list[int], tx_last_bits: int = 0) -> Optional[list[int]]:
+        """Send bytes to the card and return the response, or None on timeout/error."""
+        self._write(self._COMMAND, self._CMD_IDLE)
+        self._write(self._COM_IRQ, 0x7F)               # clear all IRQ flags
+        self._set_bits(self._FIFO_LEVEL, 0x80)         # flush FIFO
+        for byte in data:
+            self._write(self._FIFO_DATA, byte)
+        self._write(self._BIT_FRAMING, tx_last_bits)
+        self._write(self._COMMAND, self._CMD_TRANSCEIVE)
+        self._set_bits(self._BIT_FRAMING, 0x80)        # StartSend
+        for _ in range(50):
+            irq = self._read(self._COM_IRQ)
+            if irq & 0x30:                             # RxIRq | IdleIRq
+                break
+            if irq & 0x01:                             # timer expired – no card
+                self._clear_bits(self._BIT_FRAMING, 0x80)
+                return None
+        else:
+            self._clear_bits(self._BIT_FRAMING, 0x80)
+            return None
+        self._clear_bits(self._BIT_FRAMING, 0x80)
+        if self._read(self._ERROR) & 0x1B:             # buffer/collision/parity/protocol
+            return None
+        count = self._read(self._FIFO_LEVEL)
+        return [self._read(self._FIFO_DATA) for _ in range(count)]
+
+    def read_uid_blocking(self) -> Optional[str]:
+        if not self._bus:
+            return None
+        try:
+            if not self._transceive([self._PICC_REQA], tx_last_bits=0x07):
+                return None
+            uid = self._transceive([self._PICC_ANTICOLL_CL1, 0x20])
+            if not uid or len(uid) != 5:
+                return None
+            if uid[0] ^ uid[1] ^ uid[2] ^ uid[3] != uid[4]:   # BCC check
+                return None
+            return "".join(f"{b:02X}" for b in uid)
+        except Exception:
+            return None
+
+    def teardown(self) -> None:
+        if self._bus:
+            try:
+                self._clear_bits(self._TX_CONTROL, 0x03)   # antenna off
+                self._bus.close()
+            except Exception:
+                pass
+            self._bus = None
+
+
 # ── Service (driver-agnostic) ─────────────────────────────────────────────────
 
 class RfidService:
@@ -266,6 +386,12 @@ def _build_driver_from_config() -> RfidDriver:
             return PN532Driver(i2c_bus=cfg.rfid_i2c_bus if cfg else 1)
         except Exception:
             return PN532Driver()
+
+    if rfid_type == "rfid2":
+        try:
+            return Rfid2Driver(i2c_bus=cfg.rfid_i2c_bus if cfg else 1)
+        except Exception:
+            return Rfid2Driver()
 
     # Default: RC522
     try:
