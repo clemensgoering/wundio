@@ -68,6 +68,15 @@ class TestSpotifyService:
             assert "75%" in args, f"Expected '75%' in amixer args, got: {args}"
             assert "49151" not in " ".join(str(a) for a in args)
 
+    def test_set_volume_primes_softvol_when_master_missing(self):
+        """softvol 'Master' only exists after first playback – prime and retry."""
+        from services.spotify import SpotifyService
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            SpotifyService().set_volume(40)
+        cmds = [c[0][0][0] for c in mock_run.call_args_list]
+        assert cmds == ["amixer", "aplay", "amixer"]
+
     def test_state_dict_keys(self):
         from services.spotify import SpotifyService
         svc = SpotifyService()

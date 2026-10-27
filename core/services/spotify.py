@@ -275,13 +275,20 @@ class SpotifyService:
     def set_volume(self, volume: int) -> None:
         volume = max(0, min(100, volume))
         self._state.volume = volume
+        cmd = ["amixer", "sset", "Master", f"{volume}%"]
         try:
-            subprocess.run(
-                ["amixer", "sset", "Master", f"{volume}%"],
-                capture_output=True,
-            )
-        except FileNotFoundError:
-            logger.debug("amixer not available – volume mock")
+            result = subprocess.run(cmd, capture_output=True)
+            if result.returncode != 0:
+                # The softvol "Master" control from /etc/asound.conf only exists
+                # after the first playback – play 0.1 s of silence, then retry.
+                subprocess.run(
+                    ["aplay", "-q", "-D", "default", "-f", "S16_LE", "-c", "2",
+                     "-r", "44100", "-s", "4410", "/dev/zero"],
+                    capture_output=True, timeout=5,
+                )
+                subprocess.run(cmd, capture_output=True)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            logger.debug("amixer/aplay not available – volume mock")
 
     # ── Playback control ──────────────────────────────────────────────────────
 

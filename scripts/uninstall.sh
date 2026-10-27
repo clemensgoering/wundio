@@ -144,6 +144,22 @@ rm -f /opt/wundio/bin/go-librespot
 rm -rf /var/lib/wundio/spotify
 ok "go-librespot und Spotify-Anmeldung der Box entfernt"
 
+# Audio config written by install.sh (boot overlay + ALSA default/Master)
+BOOT_CONFIG="/boot/firmware/config.txt"
+[[ ! -f "$BOOT_CONFIG" ]] && BOOT_CONFIG="/boot/config.txt"
+if [[ -f "$BOOT_CONFIG" ]] && grep -q "^# Wundio audio$" "$BOOT_CONFIG"; then
+    sed -i -e '/^# Wundio audio$/d' -e '/^dtparam=audio=off$/d' \
+           -e '/^dtoverlay=hifiberry-dac\(plus\)\?$/d' -e '/^dtoverlay=i2s-mmap$/d' "$BOOT_CONFIG"
+    ok "Audio-Overlays aus $BOOT_CONFIG entfernt (wirksam nach Neustart)"
+fi
+if [[ -f /etc/asound.conf.wundio-backup ]]; then
+    mv /etc/asound.conf.wundio-backup /etc/asound.conf
+    ok "Ursprüngliche /etc/asound.conf wiederhergestellt"
+elif grep -q "^# Wundio" /etc/asound.conf 2>/dev/null; then
+    rm -f /etc/asound.conf
+    ok "Wundio /etc/asound.conf entfernt"
+fi
+
 if _wundio_installed_pkg "raspotify" || _wundio_installed_pkg "librespot"; then
     systemctl stop    raspotify 2>/dev/null || true
     systemctl disable raspotify 2>/dev/null || true

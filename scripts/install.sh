@@ -213,7 +213,7 @@ echo "    1) USB-Soundkarte        ← Einfachste Option / Pi 3 kompatibel"
 echo "    2) MAX98357A I2S DAC     ← Wundio HAT / besser, kein USB-Bus-Konflikt"
 echo "    3) HifiBerry DAC HAT     ← Tier 3 / Full-Stack (Pi 4/5, belegt 40-Pin)"
 echo ""
-echo -e "  ${YELLOW}Kann jederzeit in der App unter Einstellungen > Audio geändert werden.${NC}"
+echo -e "  ${YELLOW}Ändern: Installer erneut ausführen (richtet Boot-Config und ALSA neu ein).${NC}"
 echo ""
 
 SETUP_AUDIO_TYPE="usb"
@@ -316,6 +316,75 @@ else
     grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE" || echo "dtparam=i2c_arm=on" >> "$CONFIG_FILE"
     warn "raspi-config not found - appended SPI/I2C to $CONFIG_FILE"
 fi
+
+# -- 3b/10 Audio output
+# Onboard audio is switched off so the chosen output is the only (and default)
+# card. ALSA default = dmix (several players can share the card) behind a
+# softvol control named "Master", which wundio-core drives via amixer.
+section "3b/10 Configuring audio output (${SETUP_AUDIO_TYPE})"
+BOOT_CONFIG="/boot/firmware/config.txt"
+[[ ! -f "$BOOT_CONFIG" ]] && BOOT_CONFIG="/boot/config.txt"
+
+case "$SETUP_AUDIO_TYPE" in
+    i2s_max98357) AUDIO_OVERLAY="hifiberry-dac";     AUDIO_CARD="sndrpihifiberry" ;;
+    hifiberry)    AUDIO_OVERLAY="hifiberry-dacplus"; AUDIO_CARD="sndrpihifiberry" ;;
+    *)            AUDIO_OVERLAY="";                  AUDIO_CARD="0" ;;
+esac
+
+if [[ -f "$BOOT_CONFIG" ]]; then
+    # Remove settings from a previous run, then append ours
+    sed -i -e '/^dtparam=audio=/d' \
+           -e '/^dtoverlay=hifiberry-dac\(plus\)\?$/d' \
+           -e '/^dtoverlay=i2s-mmap$/d' \
+           -e '/^# Wundio audio$/d' "$BOOT_CONFIG"
+    {
+        echo "# Wundio audio"
+        echo "dtparam=audio=off"
+        if [[ -n "$AUDIO_OVERLAY" ]]; then
+            echo "dtoverlay=${AUDIO_OVERLAY}"
+            echo "dtoverlay=i2s-mmap"
+        fi
+    } >> "$BOOT_CONFIG"
+    ok "Boot config: onboard audio off${AUDIO_OVERLAY:+, overlay ${AUDIO_OVERLAY}}"
+else
+    warn "Boot config not found - configure audio manually"
+fi
+
+[[ -f /etc/asound.conf ]] && [[ ! -f /etc/asound.conf.wundio-backup ]] \
+    && cp /etc/asound.conf /etc/asound.conf.wundio-backup
+cat > /etc/asound.conf << ASOUNDEOF
+# Wundio - written by install.sh (audio: ${SETUP_AUDIO_TYPE})
+pcm.wundio_hw {
+    type hw
+    card ${AUDIO_CARD}
+}
+pcm.wundio_dmix {
+    type dmix
+    ipc_key 1024
+    ipc_perm 0666
+    slave {
+        pcm "wundio_hw"
+        channels 2
+    }
+}
+pcm.wundio_vol {
+    type softvol
+    slave.pcm "wundio_dmix"
+    control {
+        name "Master"
+        card ${AUDIO_CARD}
+    }
+}
+pcm.!default {
+    type plug
+    slave.pcm "wundio_vol"
+}
+ctl.!default {
+    type hw
+    card ${AUDIO_CARD}
+}
+ASOUNDEOF
+ok "ALSA default output + Master volume configured (takes effect after reboot)"
 
 # -- 4/10 Create wundio user & directories
 section "4/10 Creating user and directories"
@@ -623,5 +692,8 @@ if [[ "$SETUP_DISPLAY_TYPE" == "tft" ]]; then
     echo -e "  ${YELLOW}TFT-Display: Pinout prüfen unter wundio.dev/docs/hardware${NC}"
     echo ""
 fi
+echo -e "  ${YELLOW}${BOLD}Jetzt neu starten:${NC} ${YELLOW}sudo reboot${NC}"
+echo -e "  ${YELLOW}(SPI/I2C und die Audio-Ausgabe werden erst nach dem Neustart aktiv)${NC}"
+echo ""
 echo -e "  ${BLUE}Docs & Community:  wundio.dev${NC}"
 echo ""
